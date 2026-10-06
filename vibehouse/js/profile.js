@@ -24,10 +24,23 @@
   const clean = f => ({ name: f.name.trim(), username: f.username.trim().toLowerCase().replace(/^@/, ""), headline: f.headline.trim(), bio: f.bio.trim(),
     website: f.website.trim(), twitter: f.twitter.trim().replace(/^@/, "") });
 
+  // Write to the user's own profiles row and REALLY confirm it landed.
+  // A plain .update() that matches 0 rows (row missing, or blocked by RLS) returns no error,
+  // which used to make edits look saved while nothing reached the database.
+  async function writeProfile(c, u, fields) {
+    let r = await c.from("profiles").update(fields).eq("id", u.id).select("id");
+    if (!r.error && !(r.data && r.data.length)) {
+      r = await c.from("profiles").upsert(Object.assign({ id: u.id, email: u.email }, fields)).select("id");
+    }
+    if (r.error) return r.error;
+    if (!(r.data && r.data.length)) return { message: "your profile row is missing and can't be created (check the profiles table policies)" };
+    return null;
+  }
+
   // Keep every launch by this user in step with their profile (cards, maker box, profile page)
   function syncOwn() {
     const u = App.user; if (!u) return;
-    const photo = u.photo || localStorage.getItem("vh_user_photo") || null;
+    const photo = (window.IconEngine ? IconEngine.userPhoto(u) : u.photo) || null;
     PRODUCTS.filter(p => p.isListing && App.isProductOwner(p)).forEach(p => Object.assign(p, {
       owner: u.name, ownerUsername: u.username || "", ownerRole: u.headline || "Vibe coder", ownerBio: u.bio || "",
       ownerWebsite: u.website || "", ownerTwitter: u.twitter || "", ownerAvatarUrl: photo }));
@@ -40,8 +53,8 @@
     const f = clean(raw), err = validate(f); if (err) return err;
     const u = App.user, c = sb();
     if (c && u.id) {
-      const { error } = await c.from("profiles").update({ full_name: f.name, username: f.username, headline: f.headline || null, bio: f.bio || null,
-        website: f.website || null, twitter: f.twitter || null, avatar_letter: f.name[0].toUpperCase() }).eq("id", u.id);
+      const error = await writeProfile(c, u, { full_name: f.name, username: f.username, headline: f.headline || null, bio: f.bio || null,
+        website: f.website || null, twitter: f.twitter || null, avatar_letter: f.name[0].toUpperCase() });
       if (error) return error.code === "23505" ? "That username is taken." : "Couldn't save: " + error.message;
       await c.from("listings").update({ owner: f.name }).eq("owner_id", String(u.id)).then(() => {}, () => {});
     }
@@ -60,11 +73,25 @@
       const cand = i === 0 ? base : base + Math.floor(100 + Math.random() * 9000);
       if (RESERVED.includes(cand)) continue;
       if (c && u.id) {
-        const { error } = await c.from("profiles").update({ username: cand }).eq("id", u.id);
+        const error = await writeProfile(c, u, { username: cand });
         if (error) { if (error.code === "23505") continue; return; }
       }
       u.username = cand; App.saveUser(); App.updateUserChip(); return;
     }
+  }
+
+  // If this device still holds the user's photo but the cloud profile has none, push it up once
+  let healed = null;
+  async function healPhoto() {
+    const u = App.user, c = sb();
+    if (!u || !u.id || !c || u.photo || healed === u.id) return;
+    const local = window.IconEngine ? IconEngine.localUserPhoto(u) : null;
+    if (!local || !String(local).startsWith("data:")) return;
+    healed = u.id;
+    try {
+      const r = await VibeBackend.uploadAvatar(u.id, local);
+      if (r && r.ok && r.url && !r.offline) { u.photo = r.url; App.saveUser(); App.updateUserChip(); }
+    } catch (e) {}
   }
 
   // ---- hooks ----
@@ -74,10 +101,15 @@
     origChip();
     const u = this.user, n = document.getElementById("tuName");
     if (u && n) n.textContent = u.username || u.name;
-    if (u) { syncOwn(); const key = String(u.id || u.email || u.name); if (guard !== key) { guard = key; ensureUsername(); } }
+    if (u) {
+      syncOwn();
+      const key = String(u.id || u.email || u.name);
+      if (guard !== key) { guard = key; ensureUsername(); healPhoto(); }
+    }
   };
+  // Logout must NOT delete the saved photo: it may exist only on this device.
   const origLogout = App.logout.bind(App);
-  App.logout = async function () { try { localStorage.removeItem("vh_user_photo"); } catch (e) {} guard = null; return origLogout(); };
+  App.logout = async function () { guard = null; healed = null; return origLogout(); };
 
   const links = o => {
     const w = safeHttps(o.website), t = (o.twitter || "").replace(/^@/, "");
