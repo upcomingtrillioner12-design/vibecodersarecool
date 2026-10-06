@@ -156,14 +156,20 @@
       }
     } catch (e) {}
     if (!ready) return { ok: true, offline: true };
-    const { error } = await supabase.from("profiles").update(fields).eq("id", userId);
-    return { ok: !error, error: error && error.message };
+    // .select() lets us tell "0 rows updated" (row missing / blocked by RLS) apart from real success
+    let res = await supabase.from("profiles").update(fields).eq("id", userId).select("id");
+    if (!res.error && !(res.data && res.data.length)) {
+      res = await supabase.from("profiles").upsert(Object.assign({ id: userId }, fields)).select("id");
+    }
+    if (res.error) return { ok: false, error: res.error.message };
+    if (!(res.data && res.data.length)) return { ok: false, error: "Profile row is missing or not writable (check the profiles table policies)" };
+    return { ok: true };
   }
 
   async function uploadAvatar(userId, fileOrDataUrl) {
+    try { localStorage.setItem("vh_user_photo_uid", String(userId)); } catch (e) {}
     if (typeof fileOrDataUrl === "string" && fileOrDataUrl.startsWith("data:")) {
       localStorage.setItem("vh_user_photo", fileOrDataUrl);
-      if (!ready) return { ok: true, url: fileOrDataUrl, offline: true };
     }
     if (!ready) return { ok: true, url: fileOrDataUrl, offline: true };
     try {
@@ -176,18 +182,16 @@
       const { error } = await supabase.storage.from("avatars").upload(path, blob, {
         upsert: true, contentType: "image/jpeg"
       });
-      if (error) {
-        if (typeof fileOrDataUrl === "string") localStorage.setItem("vh_user_photo", fileOrDataUrl);
-        return { ok: false, error: error.message, url: fileOrDataUrl };
-      }
+      if (error) return { ok: false, error: error.message, url: fileOrDataUrl };
       const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
-      const url = (pub && pub.publicUrl) || fileOrDataUrl;
-      await updateProfile(userId, { avatar_url: url });
+      // Same path every time, so add a version to defeat browser/CDN caching of the old image
+      const url = pub && pub.publicUrl ? pub.publicUrl + "?v=" + Date.now() : fileOrDataUrl;
+      const saved = await updateProfile(userId, { avatar_url: url });
+      if (!saved.ok) return { ok: false, error: "Image uploaded but not saved to your profile: " + saved.error, url: fileOrDataUrl };
       localStorage.setItem("vh_user_photo", url);
       return { ok: true, url };
     } catch (e) {
-      if (typeof fileOrDataUrl === "string") localStorage.setItem("vh_user_photo", fileOrDataUrl);
-      return { ok: true, url: fileOrDataUrl, offline: true };
+      return { ok: false, error: (e && e.message) || "Upload failed", url: fileOrDataUrl };
     }
   }
 
@@ -203,8 +207,10 @@
       });
       if (error) return { ok: false, error: error.message, url: dataUrl };
       const { data: pub } = supabase.storage.from("logos").getPublicUrl(path);
-      const url = (pub && pub.publicUrl) || dataUrl;
-      await supabase.from("products").update({ logo_url: url }).eq("id", productId);
+      const url = pub && pub.publicUrl ? pub.publicUrl + "?v=" + Date.now() : dataUrl;
+      const up = await supabase.from("products").update({ logo_url: url }).eq("id", productId).select("id");
+      if (up.error) return { ok: false, error: up.error.message, url: dataUrl };
+      if (!(up.data && up.data.length)) return { ok: false, error: "This product has no row in the cloud products table, so the icon is only saved on this device", url: dataUrl };
       return { ok: true, url };
     } catch (e) {
       return { ok: true, url: dataUrl, offline: true };
