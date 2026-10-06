@@ -62,17 +62,8 @@ ul { list-style: none; }
   border-bottom: 1px solid var(--border);
 }
 
-.sidebar-logo { display: none !important; /* removed — text brand only */
-
-  width: 32px;
-  height: 32px;
-  background: linear-gradient(135deg, var(--accent), #a29bfe);
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  font-weight: 800;
-  font-size: 14px;
-}
+/* removed — text brand only */
+.sidebar-logo { display: none !important; }
 
 .sidebar-brand {
   font-family: var(--font-display);
@@ -1076,3 +1067,37 @@ ul { list-style: none; }
 .auth-divider::before,.auth-divider::after{content:"";flex:1;height:1px;background:currentColor;opacity:.3}
 .modal .social-auth .btn-social{border:1px solid var(--border);background:var(--bg-elevated);color:var(--text);min-height:44px;border-radius:10px}
 .modal .social-auth .btn-social:hover{background:var(--bg-hover);border-color:var(--accent)}
+
+
+/* ============================================================
+   BOOT MASK — hides the page until app.js knows who is signed in.
+   index.html adds <html class="booting">; app.js removes it.
+   ============================================================ */
+html.booting body { visibility: hidden; }
+html.booting { background: var(--bg); }
+html.booting::after {
+  content: "";
+  visibility: visible;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: vh-spin .7s linear infinite;
+  z-index: 9999;
+}
+@keyframes vh-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  html.booting::after { animation-duration: 2s; }
+}
+
+/* Auth chrome follows <html data-auth> immediately, so guest/user buttons never swap visibly */
+html[data-auth="user"] #authButtons,
+html[data-auth="user"] #topGuest { display: none !important; }
+html[data-auth="guest"] #userChip,
+html[data-auth="guest"] #topUser,
+html[data-auth="guest"] #btnLogout { display: none !important; }
