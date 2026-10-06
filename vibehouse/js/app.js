@@ -486,7 +486,8 @@ const App = {
         }
 
         // Load the FULL profile (bio, photo, karma, username…) before showing the logged-in UI
-        const profile = await window.VibeBackend.getProfile(user.id);
+        let profile = await window.VibeBackend.getProfile(user.id);
+        profile = await this.ensureProfile(user, profile);
         this.user = this.buildUser(user, profile, name);
         await this.loadCloudData(user.id);
         this.saveUser();
@@ -521,7 +522,7 @@ const App = {
     // Don't let the next person on this browser inherit this account's local data
     this.waitlist = {};
     this.tasks = [...TASKS_DEFAULT];
-    ["vh_user", "vh_user_photo", "vh_waitlist", "vh_tasks"].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    ["vh_user", "vh_waitlist", "vh_tasks"].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     this.toast("Logged out", "success");
     this.updateUserChip();
     this.route();
@@ -543,7 +544,7 @@ const App = {
       loginBtns.style.display = "none";
       if (logoutBtn) logoutBtn.style.display = "inline-flex";
       const av = chip.querySelector(".user-avatar");
-      const photo = this.user.photo || localStorage.getItem("vh_user_photo");
+      const photo = window.IconEngine ? IconEngine.userPhoto(this.user) : this.user.photo;
       if (av) {
         av.textContent = "";
         if (photo) {
@@ -921,11 +922,17 @@ const App = {
         localStorage.setItem("vh_logo_" + p.id, dataUrl);
         p.logoUrl = dataUrl;
         p._resolvedLogo = dataUrl;
-        if (window.VibeBackend) await window.VibeBackend.uploadProductLogo(p.id, dataUrl);
+        let logoRes = null;
+        if (window.VibeBackend) logoRes = await window.VibeBackend.uploadProductLogo(p.id, dataUrl);
         // Refresh logo in detail hero
         const logoEl = document.querySelector(".detail-logo");
         if (logoEl) logoEl.outerHTML = this.productLogoHtml(p, "detail-logo");
-        this.toast("Product icon updated", "success");
+        if (logoRes && logoRes.ok === false) {
+          console.warn("[Vibehouse] logo cloud upload failed:", logoRes.error);
+          this.toast("Saved on this device only: " + (logoRes.error || "cloud upload failed"), "error");
+        } else {
+          this.toast("Product icon updated", "success");
+        }
       } catch (err) {
         this.toast("Could not process image", "error");
       }
@@ -983,7 +990,7 @@ const App = {
     const avatar = isMe ? this.user.avatar : (String(maker?.owner || "?")[0]);
     const bio = isMe ? this.user.bio : (maker?.ownerBio || "");
     const role = isMe ? (this.user.headline || "Vibe Coder") : (maker?.ownerRole || "Vibe Coder");
-    const photo = isMe ? (this.user.photo || localStorage.getItem("vh_user_photo")) : null;
+    const photo = isMe ? (window.IconEngine ? IconEngine.userPhoto(this.user) : this.user.photo) : null;
 
     el.innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="history.back()" style="margin-bottom:20px">← Back</button>
@@ -1029,12 +1036,18 @@ const App = {
                 r.readAsDataURL(file);
               });
           localStorage.setItem("vh_user_photo", dataUrl);
+          if (this.user?.id) localStorage.setItem("vh_user_photo_uid", String(this.user.id));
           if (this.user) {
             this.user.photo = dataUrl;
             this.saveUser();
           }
+          let avatarRes = null;
           if (window.VibeBackend && this.user?.id) {
-            await window.VibeBackend.uploadAvatar(this.user.id, dataUrl);
+            avatarRes = await window.VibeBackend.uploadAvatar(this.user.id, dataUrl);
+            if (avatarRes && avatarRes.ok && avatarRes.url && !avatarRes.offline) {
+              this.user.photo = avatarRes.url;
+              this.saveUser();
+            }
           }
           const img = document.getElementById("profilePhotoImg");
           if (img) img.src = dataUrl;
@@ -1045,7 +1058,12 @@ const App = {
             box.onclick = () => inp2?.click();
           }
           this.updateUserChip();
-          this.toast("Profile photo updated", "success");
+          if (avatarRes && avatarRes.ok === false) {
+            console.warn("[Vibehouse] avatar cloud upload failed:", avatarRes.error);
+            this.toast("Saved on this device only: " + (avatarRes.error || "cloud upload failed"), "error");
+          } else {
+            this.toast("Profile photo updated", "success");
+          }
         } catch (err) {
           this.toast("Could not process image", "error");
         }
