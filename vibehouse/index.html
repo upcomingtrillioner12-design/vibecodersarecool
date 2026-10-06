@@ -12,17 +12,23 @@
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/css/premium.css">
   <script>
-    // Runs before first paint: decide logged-in vs guest chrome from the local snapshot so nothing flickers on refresh.
+    // Runs before first paint. It does two jobs:
+    //  1) picks logged-in vs guest chrome from the local snapshot (no flicker on refresh)
+    //  2) raises the "booting" mask so the page is never shown in a wrong auth state.
+    //     app.js lowers the mask once it knows who the user is.
     (function () {
       var a = "guest", d = document.documentElement;
       try {
+        var oauth = /[#?&](access_token|refresh_token|code|error)=/.test(location.hash + location.search);
         var k = Object.keys(localStorage).filter(function (x) { return /^sb-.*-auth-token$/.test(x); })[0];
         var s = k && JSON.parse(localStorage.getItem(k));
-        if ((s && (s.user || s.refresh_token)) || localStorage.getItem("vh_user") || /[#?&](access_token|code)=/.test(location.hash + location.search)) a = "user";
+        if ((s && (s.user || s.refresh_token)) || localStorage.getItem("vh_user") || oauth) a = "user";
+        if (oauth) d.classList.add("auth-returning");
       } catch (e) {}
       d.setAttribute("data-auth", a);
       d.classList.add("booting");
-      setTimeout(function () { d.classList.remove("booting"); }, 3000); // safety net
+      // Safety net only: app.js removes the mask itself as soon as auth is settled.
+      setTimeout(function () { d.classList.remove("booting"); }, 6500);
     })();
   </script>
 </head>
@@ -117,15 +123,17 @@
       <div id="modalBody"></div>
     </div>
   </div>
-  <script src="js/config.js"></script>
-  <script src="js/data.js"></script>
-  <script src="js/icons.js"></script>
-  <script src="js/supabase.js"></script>
-  <script src="js/app.js"></script>
-  <script src="js/hub.js"></script>
-  <script src="js/profile.js"></script>
-  <script src="js/media.js"></script>
-  <script src="js/launch.js"></script>
+
+  <!-- Absolute paths: relative ones break on deep links like /ai/daxeon (they resolve to /ai/js/...) -->
+  <script src="/js/config.js"></script>
+  <script src="/js/data.js"></script>
+  <script src="/js/icons.js"></script>
+  <script src="/js/supabase.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/hub.js"></script>
+  <script src="/js/profile.js"></script>
+  <script src="/js/media.js"></script>
+  <script src="/js/launch.js"></script>
   <script>
     // Keyboard shortcut ⌘K / Ctrl+K for search
     document.addEventListener("keydown", e => {
