@@ -26,12 +26,29 @@ const App = {
     return null;
   },
 
+  // One shared start-up promise: every caller waits for the same init, so it never runs twice
+  ensureBackend() {
+    if (!this._bp) {
+      this._bp = (window.VibeBackend ? Promise.resolve().then(() => window.VibeBackend.init()) : Promise.resolve(false))
+        .catch(() => false)
+        .then(ok => (this.backendReady = !!ok));
+    }
+    return this._bp;
+  },
+
+  // True when the site is configured for Supabase (keys present and enabled)
+  cloudConfigured() {
+    const c = window.VIBEHOUSE_CONFIG || {};
+    return !!(c.USE_SUPABASE && c.SUPABASE_URL && c.SUPABASE_ANON_KEY);
+  },
+
   async init() {
     // 1) Paint immediately from the local snapshot, so a refresh never flashes the logged-out page
     this.loadLocalState();
     if (!this.user) this.user = this.cachedUser();
     if (!this.tasks.length) this.tasks = [...TASKS_DEFAULT];
     this.bindGlobal();
+    this.ensureBackend(); // start connecting now, without blocking the first paint
     this.route();
     document.documentElement.classList.remove("booting");
     window.addEventListener("popstate", () => this.route());
@@ -56,14 +73,14 @@ const App = {
     const before = idOf(this.user);
     try {
       if (window.VibeBackend) {
-        this.backendReady = await window.VibeBackend.init();
+        await this.ensureBackend();
         if (this.backendReady) {
           const session = await window.VibeBackend.getSession();
           if (session?.user) {
             const profile = await window.VibeBackend.getProfile(session.user.id);
             this.user = {
               id: session.user.id,
-              name: profile?.full_name || session.user.user_metadata?.full_name || session.user.email.split("@")[0],
+              name: profile?.full_name || session.user.user_metadata?.full_name || session.user.user_metadata?.name || session.user.user_metadata?.user_name || session.user.email.split("@")[0],
               email: session.user.email,
               avatar: (profile?.avatar_letter || session.user.email[0]).toUpperCase(),
               tools: profile?.tools_count || 0,
@@ -304,15 +321,16 @@ const App = {
     body.querySelectorAll(".btn-social").forEach(btn => {
       btn.addEventListener("click", async () => {
         const msg = document.getElementById("authMsg");
+        const fail = t => { msg.textContent = t; msg.style.color = "var(--danger)"; btn.disabled = false; };
         msg.style.color = "var(--text-muted)";
+        msg.textContent = "Connecting…";
+        btn.disabled = true;
+        if (!window.VibeBackend || !this.cloudConfigured()) return fail("Social login isn't set up on this site yet.");
+        await this.ensureBackend(); // waits for the one shared init, no race with the page load
+        if (!this.backendReady) return fail("Couldn't reach the login server. Check your connection and try again.");
         msg.textContent = "Redirecting…";
-        if (!this.backendReady || !window.VibeBackend) {
-          msg.textContent = "Social login is not available right now.";
-          msg.style.color = "var(--danger)";
-          return;
-        }
         const r = await window.VibeBackend.signInWithProvider(btn.dataset.provider);
-        if (r.error) { msg.textContent = r.error; msg.style.color = "var(--danger)"; }
+        if (r.error) fail(r.error);
       });
     });
 
@@ -324,6 +342,13 @@ const App = {
       const msg = document.getElementById("authMsg");
       msg.style.color = "var(--text-muted)";
       msg.textContent = "Working...";
+
+      await this.ensureBackend();
+      if (this.cloudConfigured() && !this.backendReady) {
+        msg.textContent = "Couldn't reach the server. Check your connection and try again.";
+        msg.style.color = "var(--danger)";
+        return;
+      }
 
       if (this.backendReady && window.VibeBackend) {
         const result = mode === "signup"
