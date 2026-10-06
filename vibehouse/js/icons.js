@@ -4,6 +4,10 @@
 // ============================================================
 
 const IconEngine = {
+  _esc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  },
+
   // Deterministic color from string
   colorFrom(str, palette) {
     const colors = palette || [
@@ -19,13 +23,15 @@ const IconEngine = {
 
   mono(name) {
     const w = String(name || "?").trim().split(/\s+/);
-    return (w[0][0] + (w[1] ? w[1][0] : (w[0][1] || ""))).toUpperCase();
+    const a = (w[0] && w[0][0]) || "?";
+    const b = w[1] ? w[1][0] : ((w[0] && w[0][1]) || "");
+    return (a + b).toUpperCase();
   },
 
-  // Rounded square product logo as SVG data URI
+  // Round product logo as SVG data URI
   productSvg(name, bg) {
-    const mono = this.mono(name);
-    const color = bg || this.colorFrom(name);
+    const mono = this._esc(this.mono(name));
+    const color = this._validColor(bg) || this.colorFrom(name);
     // Unique gradient id per name to avoid collisions when many SVGs on page
     const gid = "g" + String(name || "x").replace(/\W/g, "").slice(0, 12) + Math.abs(this._hash(name));
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
@@ -48,10 +54,14 @@ const IconEngine = {
     return h;
   },
 
+  _validColor(c) {
+    return /^#[0-9a-f]{6}$/i.test(String(c || "")) ? c : null;
+  },
+
   // Circular avatar SVG
   avatarSvg(name, bg) {
-    const letter = String(name || "?")[0].toUpperCase();
-    const color = bg || this.colorFrom(name + "avatar");
+    const letter = this._esc(String(name || "?").trim()[0] || "?").toUpperCase();
+    const color = this._validColor(bg) || this.colorFrom(name + "avatar");
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
       <circle cx="64" cy="64" r="64" fill="${color}"/>
       <text x="64" y="76" text-anchor="middle" font-family="system-ui,Archivo,sans-serif" font-weight="700" font-size="52" fill="#fff">${letter}</text>
@@ -60,6 +70,7 @@ const IconEngine = {
   },
 
   shade(hex, percent) {
+    if (!this._validColor(hex)) return "#444444";
     const n = parseInt(hex.replace("#", ""), 16);
     let r = (n >> 16) + percent;
     let g = ((n >> 8) & 0xff) + percent;
@@ -70,13 +81,15 @@ const IconEngine = {
     return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   },
 
-  // Resolve product logo: custom URL → stored override → generated SVG
+  // Resolve product logo: image saved on this device → logo URL → generated SVG.
+  // The saved override comes FIRST so an icon the owner uploaded is not hidden by the
+  // default logoUrl from data.js after a reload.
   productLogo(p) {
-    if (p.logoUrl) return p.logoUrl;
     try {
       const stored = localStorage.getItem("vh_logo_" + p.id);
       if (stored) return stored;
     } catch (e) {}
+    if (p.logoUrl) return p.logoUrl;
     return this.productSvg(p.name, p.logoColor);
   },
 
@@ -90,15 +103,23 @@ const IconEngine = {
     return this.avatarSvg(p.owner, p.ownerColor);
   },
 
-  // Resolve current user photo
+  // The photo saved on this device, but only if it belongs to this user
+  // (so a second account on the same browser never inherits the first one's photo).
+  localUserPhoto(user) {
+    try {
+      const photo = localStorage.getItem("vh_user_photo");
+      if (!photo) return null;
+      const owner = localStorage.getItem("vh_user_photo_uid");
+      if (!owner || !user || !user.id || owner === String(user.id)) return photo;
+    } catch (e) {}
+    return null;
+  },
+
+  // Resolve current user photo: cloud URL from the profile → photo saved on this device
   userPhoto(user) {
     if (!user) return null;
     if (user.photo) return user.photo;
-    try {
-      return localStorage.getItem("vh_user_photo");
-    } catch (e) {
-      return null;
-    }
+    return this.localUserPhoto(user);
   },
 
   // Compress & store image file as data URL (max ~400kb)
@@ -123,6 +144,9 @@ const IconEngine = {
           canvas.width = w;
           canvas.height = h;
           const ctx = canvas.getContext("2d");
+          // JPEG has no transparency: paint white first so transparent PNG logos don't turn black
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, w, h);
           ctx.drawImage(img, 0, 0, w, h);
           let quality = 0.85;
           let dataUrl = canvas.toDataURL("image/jpeg", quality);
