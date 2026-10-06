@@ -9,33 +9,42 @@
   const cfg = window.VIBEHOUSE_CONFIG || {};
   let supabase = null;
   let ready = false;
+  let initPromise = null; // init() is idempotent: every caller shares one run
 
-  async function init() {
-    if (!cfg.USE_SUPABASE || !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
-      console.info("[Vibehouse] Offline mode (localStorage). Add keys in js/config.js for Supabase.");
-      return false;
-    }
-    try {
-      if (!window.supabase) {
-        await new Promise((resolve, reject) => {
-          const s = document.createElement("script");
-          s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
-          s.onload = resolve;
-          s.onerror = reject;
-          document.head.appendChild(s);
-        });
+  function loadSdk() {
+    return new Promise((resolve, reject) => {
+      if (window.supabase) return resolve();
+      const s = document.createElement("script");
+      const timer = setTimeout(() => reject(new Error("Supabase SDK load timed out")), 8000);
+      s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+      s.onload = () => { clearTimeout(timer); resolve(); };
+      s.onerror = () => { clearTimeout(timer); reject(new Error("Supabase SDK failed to load")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function init() {
+    if (initPromise) return initPromise;
+    initPromise = (async function () {
+      if (!cfg.USE_SUPABASE || !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
+        console.info("[Vibehouse] Offline mode (localStorage). Add keys in js/config.js for Supabase.");
+        return false;
       }
-      const { createClient } = window.supabase;
-      supabase = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
-      });
-      ready = true;
-      console.info("[Vibehouse] Supabase connected.");
-      return true;
-    } catch (e) {
-      console.warn("[Vibehouse] Supabase init failed:", e);
-      return false;
-    }
+      try {
+        await loadSdk();
+        const { createClient } = window.supabase;
+        supabase = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+          auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+        });
+        ready = true;
+        console.info("[Vibehouse] Supabase connected.");
+        return true;
+      } catch (e) {
+        console.warn("[Vibehouse] Supabase init failed:", e);
+        return false;
+      }
+    })();
+    return initPromise;
   }
 
   async function signUp(email, password, name) {
@@ -76,20 +85,66 @@
   }
 
   async function signOut() {
-    if (!ready) return;
-    await supabase.auth.signOut();
+    try { if (ready) await supabase.auth.signOut(); } catch (e) { console.warn("[Vibehouse] signOut failed", e); }
+    // Make sure no stale snapshot can repaint a logged-in page after logout
+    try {
+      Object.keys(localStorage).forEach(function (k) {
+        if (/^sb-.*-auth-token$/.test(k)) localStorage.removeItem(k);
+      });
+      localStorage.removeItem("vh_user");
+    } catch (e) {}
   }
 
   async function getSession() {
     if (!ready) return null;
-    const { data } = await supabase.auth.getSession();
-    return data.session;
+    try {
+      // getSession() waits for the client's own URL/OAuth processing to finish
+      const { data } = await supabase.auth.getSession();
+      return data.session || null;
+    } catch (e) {
+      console.warn("[Vibehouse] getSession failed", e);
+      return null;
+    }
+  }
+
+  // After an OAuth redirect: resolve as soon as a session exists (or after timeoutMs).
+  async function waitForSession(timeoutMs) {
+    if (!ready) return null;
+    const first = await getSession();
+    if (first) return first;
+    return new Promise(function (resolve) {
+      let done = false;
+      let sub = null;
+      const finish = function (s) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try { sub && sub.unsubscribe(); } catch (e) {}
+        resolve(s || null);
+      };
+      const timer = setTimeout(function () { getSession().then(finish); }, timeoutMs || 5000);
+      try {
+        const res = supabase.auth.onAuthStateChange(function (event, session) {
+          if (session && (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED")) finish(session);
+        });
+        sub = res && res.data && res.data.subscription;
+      } catch (e) { getSession().then(finish); }
+    });
+  }
+
+  function onAuthChange(cb) {
+    if (!ready) return function () {};
+    const res = supabase.auth.onAuthStateChange(function (event, session) { cb(event, session); });
+    const sub = res && res.data && res.data.subscription;
+    return function () { try { sub && sub.unsubscribe(); } catch (e) {} };
   }
 
   async function getProfile(userId) {
     if (!ready) return null;
-    const { data } = await supabase.from("profiles").select("*").eq("id", userId).single();
-    return data;
+    try {
+      const { data } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+      return data || null;
+    } catch (e) { return null; }
   }
 
   async function updateProfile(userId, fields) {
@@ -281,6 +336,8 @@
     signInWithProvider: signInWithProvider,
     signOut: signOut,
     getSession: getSession,
+    waitForSession: waitForSession,
+    onAuthChange: onAuthChange,
     getProfile: getProfile,
     updateProfile: updateProfile,
     uploadAvatar: uploadAvatar,
