@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Vibe coders are cool. Vibehouse is the platform for vibe-coded tools and products.">
+<title>vibecodersarecool — The platform for vibe-coded tools and products</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root{--f:"Archivo","Helvetica Neue",Arial,sans-serif;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+html{background:#000;scroll-behavior:smooth;scroll-padding-top:24px}
+body{margin:0;background:#000;color:#fff;font-family:var(--f);font-weight:700;font-size:15px;line-height:1.55;letter-spacing:.01em;-webkit-font-smoothing:antialiased}
+p,h1,h2{margin:0}
+a{color:inherit}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+input{font:inherit;color:#fff;background:transparent;border:0;border-bottom:2px solid #fff;border-radius:0;padding:10px 0;width:100%;outline:none}
+input::placeholder{color:#fff;opacity:.55}
+:focus-visible{outline:2px solid #fff;outline-offset:4px}
+input:focus-visible{outline:0;border-bottom-width:4px}
+.wrap{max-width:960px;margin:0 auto;padding:0 24px}
+.sr{position:absolute;left:-9999px}
+.cool{margin:0;text-align:center;padding:14px 24px 0;font-weight:800;font-size:clamp(24px,3.6vw,38px);line-height:1.1;letter-spacing:-.02em}
+header.top{display:flex;justify-content:space-between;align-items:center;padding:22px 24px;max-width:1100px;margin:0 auto;gap:16px}
+header.top .brand{text-decoration:none;font-weight:800;font-size:18px}
+header.top .acct{display:flex;align-items:center;gap:22px}
+.link{text-decoration:underline;text-underline-offset:5px;text-decoration-thickness:2px}
+.pill{border:2px solid #fff;border-radius:999px;padding:7px 18px;font-weight:800;text-align:center}
+.pill:hover{background:#fff;color:#000}
+.link:hover{text-decoration-thickness:4px}
+.hero{display:flex;flex-direction:column;align-items:center;padding:4px 24px 56px;text-align:center}
+.stage{width:min(88vw,620px);aspect-ratio:1/1;position:relative;touch-action:pan-y}
+#orb{width:100%;height:100%;display:block;cursor:grab}
+#orb:active{cursor:grabbing}
+.hero h1{font-weight:800;font-size:clamp(20px,3vw,30px);line-height:1.25;max-width:20em;margin-top:8px}
+.lede{margin-top:14px;max-width:34em;font-size:16px;opacity:.85}
+.hint{margin-top:18px;font-size:13px;opacity:.6}
+section{padding:56px 0}
+h2{font-weight:800;font-size:18px;margin-bottom:22px}
+.model{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}
+.model h3{margin:0 0 6px;font-size:16px;font-weight:800}
+.model p{font-size:14px;opacity:.8}
+@media (max-width:760px){.model{grid-template-columns:1fr;gap:20px}}
+#ai[hidden]{display:none}
+#ai .in{max-width:620px;margin:0 auto}
+.ask{display:flex;gap:18px;align-items:flex-end}
+.ask input{flex:1}
+.ask button{padding:10px 0;white-space:nowrap}
+.ask button:hover:not(:disabled){text-decoration:underline;text-underline-offset:5px;text-decoration-thickness:2px}
+.ask button:disabled{opacity:.5;cursor:default}
+.tries{display:flex;flex-wrap:wrap;gap:6px 22px;margin-top:16px;font-size:14px}
+.tries button{opacity:.75}
+.tries button:hover{opacity:1;text-decoration:underline;text-underline-offset:4px}
+#answer{margin-top:26px;white-space:pre-wrap;min-height:1.5em}
+#stop{display:none;margin-top:10px;font-size:13px;opacity:.7}
+.list{list-style:none;margin:0;padding:0;display:grid;gap:16px;grid-template-columns:1fr}
+.item{border:2px solid #fff;border-radius:18px;padding:22px 24px;display:flex;justify-content:space-between;align-items:center;gap:28px;transition:background .15s,color .15s}
+.item:hover,.item:target{background:#fff;color:#000}
+.item:target{border-width:4px;padding:20px 22px}
+.item .left{display:flex;gap:18px;align-items:flex-start;min-width:0}
+.item .logo{width:56px;height:56px;flex:none;border:2px solid currentColor;border-radius:16px;display:grid;place-items:center;font-weight:800;font-size:20px;letter-spacing:-.02em}
+.item .logo.sq{border-radius:50%}
+.item .logo.dm{border-radius:6px;transform:rotate(45deg)}
+.item .logo.dm span{transform:rotate(-45deg);display:block}
+.item .nm{margin:0;font-size:22px;font-weight:800;line-height:1.15;letter-spacing:-.01em}
+.item .kind{font-size:13px;margin-top:2px}
+.item .desc{margin-top:8px;max-width:36em}
+.item .get{margin-top:10px;font-size:14px;text-decoration:underline;text-underline-offset:5px;text-decoration-thickness:2px}
+.item .get[aria-pressed="true"]{text-decoration:none}
+.item .owner{text-align:right;flex:none;max-width:200px}
+.item .owner small{display:block;font-size:13px}
+.item .owner b{display:block;font-size:19px;font-weight:800;line-height:1.2;letter-spacing:-.01em}
+@media (max-width:640px){.item{flex-direction:column;align-items:flex-start;gap:18px}.item .owner{text-align:left;max-width:none}}
+.cta{text-align:center}
+.cta p{margin-bottom:10px;font-size:18px;font-weight:800}
+.cta .sub{margin-bottom:22px;font-size:14px;opacity:.75}
+footer{padding:24px 24px 56px;max-width:1100px;margin:0 auto;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;font-size:13px}
+dialog{background:#000;color:#fff;border:2px solid #fff;border-radius:18px;padding:26px;width:min(92vw,420px);max-height:90vh;overflow:auto}
+dialog::backdrop{background:rgba(0,0,0,.82)}
+.dtabs{display:flex;gap:22px;margin-bottom:22px}
+.dtabs button{font-size:18px;font-weight:800;opacity:.5;text-decoration-thickness:3px;text-underline-offset:7px}
+.dtabs button[aria-selected="true"]{opacity:1;text-decoration:underline}
+.field{display:block;margin-bottom:16px}
+.field span{display:block;font-size:13px}
+.dgo{margin-top:6px;border:2px solid #fff;border-radius:999px;padding:11px 24px;font-weight:800;background:#fff;color:#000}
+.dgo:hover{background:#000;color:#fff}
+.dclose{position:absolute;top:18px;right:20px;font-size:14px}
+.dmsg{margin-top:16px;min-height:1.5em}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.item{transition:none}}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">vibecodersarecool</a>
+  <div class="acct">
+    <button type="button" class="link" id="openLogin">Log in</button>
+    <button type="button" class="pill" id="openSignup">Sign up</button>
+  </div>
+</header>
+<p style="text-align:center;margin:12px 24px 0"><a href="/" class="pill" style="display:inline-block;text-decoration:none">Explore tools →</a></p>
+<p class="cool">Vibe coders are cool.</p>
+<main id="top">
+  <div class="hero">
+    <div class="stage">
+      <canvas id="orb" role="img" aria-label="A rotating sphere covered with the names of Vibehouse products, with a pair of sunglasses in the middle"></canvas>
+    </div>
+    <h1>Every tool, app and website here was made by vibe coders.</h1>
+    <p class="lede">We run the house. Vibe coders fill it with tools, apps and websites, each one a product you can subscribe to.</p>
+    <p class="lede" style="font-size:14px;opacity:.65;margin-top:8px">Vibehouse is the platform for vibe-coded tools and products.</p>
+    <p class="hint">Drag the sphere. Tap a product name on it.</p>
+  </div>
+  <section id="ai" class="wrap" hidden>
+    <div class="in">
+      <h2>Ask Vibehouse AI</h2>
+      <form class="ask" id="askForm">
+        <label for="q" class="sr">Describe what you need</label>
+        <input id="q" type="text" placeholder="What do you need help with?" autocomplete="off" maxlength="300">
+        <button type="submit" id="askBtn">Ask</button>
+      </form>
+      <div class="tries" id="tries">
+        <button type="button" data-q="I send too many invoices by hand.">I send too many invoices by hand.</button>
+        <button type="button" data-q="I want a website for my cafe.">I want a website for my cafe.</button>
+        <button type="button" data-q="I want to build better daily habits.">I want to build better daily habits.</button>
+      </div>
+      <div id="answer" aria-live="polite"></div>
+      <button type="button" id="stop">Stop</button>
+    </div>
+  </section>
+  <section class="wrap" id="how">
+    <h2>How Vibehouse works</h2>
+    <div class="model">
+      <div><h3>A community</h3><p>Vibe Coders is where people who build with AI meet, learn and ship.</p></div>
+      <div><h3>Separate products</h3><p>Every tool, app and website is its own product with its own subscription. Not a freelancer marketplace: nobody bids on jobs.</p></div>
+      <div><h3>One roof</h3><p>One account, one place to pay, one place to be found. We run the platform so makers keep building.</p></div>
+    </div>
+  </section>
+  <section id="products" class="wrap">
+    <h2>Products</h2>
+    <ul class="list" id="list"></ul>
+  </section>
+  <section class="wrap cta">
+    <p>Build with us. Use what we build.</p>
+    <p class="sub">Join Vibe Coders, the community behind Vibehouse.</p>
+    <button type="button" class="pill" id="openSignup2">Sign up</button>
+  </section>
+</main>
+<footer>
+  <span>&copy; 2026 Vibehouse</span>
+  <span>The platform for vibe coders. Made by vibe coders.</span>
+</footer>
+<dialog id="acct" aria-labelledby="dtitle">
+  <button type="button" class="dclose link" id="dclose">Close</button>
+  <div class="dtabs" role="tablist" id="dtitle">
+    <button type="button" role="tab" id="tabUp" aria-selected="true">Sign up</button>
+    <button type="button" role="tab" id="tabIn" aria-selected="false">Log in</button>
+  </div>
+  <form id="formUp" novalidate>
+    <label class="field"><span>Name</span><input id="upName" type="text" autocomplete="name"></label>
+    <label class="field"><span>Email</span><input id="upEmail" type="email" autocomplete="email"></label>
+    <button type="submit" class="dgo">Create my account</button>
+  </form>
+  <form id="formIn" novalidate hidden>
+    <label class="field"><span>Email</span><input id="inEmail" type="email" autocomplete="email"></label>
+    <button type="submit" class="dgo">Log in</button>
+  </form>
+  <div class="dmsg" id="dmsg" role="status"></div>
+</dialog>
+<script>
+(function(){
+  var PRODUCTS = [
+    {id:"inbox", owner:"Aarav Mehta", name:"Inbox Sorter", type:"SaaS tool", desc:"Sorts your email into what needs a reply today and what can wait, and drafts the replies for you."},
+    {id:"ledger", owner:"Diya Rao", name:"Pocket Ledger", type:"Mobile app", desc:"Log a purchase by speaking it. See where the month's money went without typing a number."},
+    {id:"menu", owner:"Kabir Sethi", name:"Menu Maker", type:"Website", desc:"Turns a cafe's or restaurant's menu into a fast, mobile-ready website that updates when the menu does."},
+    {id:"standup", owner:"Meera Iyer", name:"Standup Bot", type:"Web app", desc:"Collects each teammate's daily update in chat and posts one clean summary before the morning meeting."},
+    {id:"invoice", owner:"Rohan Das", name:"Invoice Nest", type:"SaaS tool", desc:"Create invoices, send them, and chase late payments automatically. Built for solo workers and small studios."},
+    {id:"habit", owner:"Ishita Nair", name:"Habit Orchard", type:"Mobile app", desc:"Grow a small tree for every habit you keep. Missed days don't reset it, they just slow its growth."},
+    {id:"pages", owner:"Neil Banerjee", name:"Launch Pages", type:"Website", desc:"One-page sites for product launches, with a built-in waitlist and a link that previews well when shared."},
+    {id:"notes", owner:"Sana Qureshi", name:"Clip Notes", type:"Web app", desc:"Save snippets from any page and ask questions across everything you've collected."}
+  ];
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var SHAPES = ["","sq","dm",""];
+  function mono(name){var w=name.split(" ");return (w[0][0]+(w[1]?w[1][0]:w[0][1]||"")).toUpperCase();}
+  var waitlist = {};
+  var list = document.getElementById("list");
+  function renderList(){
+    list.innerHTML = PRODUCTS.map(function(p,i){
+      var on = !!waitlist[p.id];
+      var sh = SHAPES[i%SHAPES.length];
+      return '<li class="item" id="p-'+p.id+'">'
+        + '<div class="left"><div class="logo '+sh+'" aria-hidden="true"><span>'+esc(mono(p.name))+'</span></div>'
+        + '<div><h3 class="nm">'+esc(p.name)+'</h3><div class="kind">'+esc(p.type)+'</div>'
+        + '<p class="desc">'+esc(p.desc)+'</p>'
+        + '<button type="button" class="get" data-id="'+p.id+'" aria-pressed="'+on+'">'+(on?'You are on the waitlist':'Join the waitlist')+'</button></div></div>'
+        + '<div class="owner"><small>Made by</small><b>'+esc(p.owner)+'</b></div>'
+        + '</li>';
+    }).join("");
+    list.querySelectorAll(".get").forEach(function(b){
+      b.addEventListener("click",function(){
+        var id=b.getAttribute("data-id"); waitlist[id]=!waitlist[id]; renderList();
+        var el=document.querySelector('#p-'+id+' .get'); if(el) el.focus();
+      });
+    });
+  }
+  renderList();
+  var canvas = document.getElementById("orb");
+  var ctx = canvas.getContext("2d");
+  var labels = [];
+  var extras = ["vibe coded","web app","mobile app","SaaS tool","website","vibe coded"];
+  var seq = [];
+  PRODUCTS.forEach(function(p){seq.push({t:p.name,id:p.id})});
+  extras.forEach(function(t){seq.push({t:t,id:null})});
+  PRODUCTS.forEach(function(p){seq.push({t:p.name,id:p.id})});
+  extras.forEach(function(t){seq.push({t:t,id:null})});
+  var N = seq.length;
+  for(var i=0;i<N;i++){
+    var y = 1 - 2*(i+0.5)/N, rr = Math.sqrt(1-y*y), ph = i*2.399963229728653;
+    labels.push({t:seq[i].t,id:seq[i].id,x:Math.cos(ph)*rr,y:y,z:Math.sin(ph)*rr});
+  }
+  var angY = 0, angX = 0.32, vel = reduce ? 0 : 0.0042;
+  var size = 0, dpr = 1, drag = null, projected = [];
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio||1,2);
+    size = canvas.clientWidth;
+    canvas.width = Math.round(size*dpr);
+    canvas.height = Math.round(size*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener("resize",resize);
+  resize();
+  function lens(x,y,w,h,rad){
+    ctx.beginPath();
+    ctx.moveTo(x+rad,y);
+    ctx.lineTo(x+w-rad,y);
+    ctx.arcTo(x+w,y,x+w,y+rad,rad);
+    ctx.lineTo(x+w,y+h*0.55);
+    ctx.arcTo(x+w,y+h,x+w-w*0.38,y+h,h*0.7);
+    ctx.lineTo(x+w*0.38,y+h);
+    ctx.arcTo(x,y+h,x,y+h*0.55,h*0.7);
+    ctx.lineTo(x,y+rad);
+    ctx.arcTo(x,y,x+rad,y,rad);
+    ctx.closePath();
+  }
+  function glasses(cx,cy,R){
+    var W = R*0.78, lw = W*0.43, lh = W*0.27, gap = W*0.14;
+    var lx = cx-gap/2-lw, rx = cx+gap/2, ty = cy-lh/2;
+    ctx.save();
+    ctx.fillStyle = "#fff"; ctx.strokeStyle = "#fff"; ctx.lineWidth = Math.max(3,R*0.018); ctx.lineJoin="round"; ctx.lineCap="round";
+    lens(lx,ty,lw,lh,lh*0.2); ctx.fill();
+    lens(rx,ty,lw,lh,lh*0.2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(lx+lw,ty+lh*0.18); ctx.quadraticCurveTo(cx,ty-lh*0.12,rx,ty+lh*0.18); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lx,ty+lh*0.12); ctx.lineTo(lx-W*0.1,ty+lh*0.05); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rx+lw,ty+lh*0.12); ctx.lineTo(rx+lw+W*0.1,ty+lh*0.05); ctx.stroke();
+    ctx.strokeStyle = "#000"; ctx.lineWidth = Math.max(2,R*0.012);
+    [lx,rx].forEach(function(x0){
+      ctx.beginPath(); ctx.moveTo(x0+lw*0.18,ty+lh*0.72); ctx.lineTo(x0+lw*0.42,ty+lh*0.2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x0+lw*0.34,ty+lh*0.8); ctx.lineTo(x0+lw*0.5,ty+lh*0.48); ctx.stroke();
+    });
+    ctx.restore();
+  }
+  function frame(){
+    if(!drag) angY += vel;
+    var cx = size/2, cy = size/2, R = size*0.40;
+    ctx.clearRect(0,0,size,size);
+    var sy = Math.sin(angY), cyv = Math.cos(angY), sx = Math.sin(angX), cxv = Math.cos(angX);
+    var pts = labels.map(function(L){
+      var x1 = L.x*cyv + L.z*sy, z1 = -L.x*sy + L.z*cyv;
+      var y2 = L.y*cxv - z1*sx, z2 = L.y*sx + z1*cxv;
+      return {L:L,x:cx+x1*R,y:cy+y2*R,z:z2};
+    });
+    pts.sort(function(a,b){return a.z-b.z});
+    var base = Math.max(11,size*0.026);
+    projected = [];
+    function drawWord(p){
+      var d = (p.z+1)/2;
+      var fs = base*(0.72+0.62*d);
+      ctx.globalAlpha = 0.14+0.86*d;
+      ctx.font = "800 "+fs.toFixed(1)+"px Archivo, 'Helvetica Neue', Arial, sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "#fff";
+      ctx.fillText(p.L.t,p.x,p.y);
+      if(p.z>0 && p.L.id){ projected.push({id:p.L.id,x:p.x,y:p.y,w:ctx.measureText(p.L.t).width,h:fs}); }
+    }
+    var k = 0;
+    while(k<pts.length && pts[k].z<0){ drawWord(pts[k]); k++; }
+    ctx.globalAlpha = 1;
+    glasses(cx,cy,R);
+    for(;k<pts.length;k++){ drawWord(pts[k]); }
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(frame);
+  }
+  frame();
+  canvas.addEventListener("pointerdown",function(e){
+    drag = {x:e.clientX,y:e.clientY,moved:0};
+    try{canvas.setPointerCapture(e.pointerId)}catch(_){}
+  });
+  canvas.addEventListener("pointermove",function(e){
+    if(!drag) return;
+    var dx = e.clientX-drag.x, dy = e.clientY-drag.y;
+    drag.x = e.clientX; drag.y = e.clientY;
+    drag.moved += Math.abs(dx)+Math.abs(dy);
+    angY += dx*0.008;
+    angX = Math.max(-1.1,Math.min(1.1,angX+dy*0.006));
+  });
+  canvas.addEventListener("pointerup",function(e){
+    if(drag && drag.moved<6){
+      var rect = canvas.getBoundingClientRect();
+      var px = e.clientX-rect.left, py = e.clientY-rect.top, best = null, bd = 1e9;
+      projected.forEach(function(p){
+        var inx = Math.abs(px-p.x) < p.w/2+10, iny = Math.abs(py-p.y) < p.h/2+10;
+        if(inx&&iny){ var dd = Math.abs(px-p.x)+Math.abs(py-p.y); if(dd<bd){bd=dd;best=p;} }
+      });
+      if(best){
+        var el = document.getElementById("p-"+best.id);
+        if(el){ history.replaceState(null,"","#p-"+best.id); el.scrollIntoView({behavior:reduce?"auto":"smooth",block:"center"}); }
+      }
+    }
+    drag = null;
+  });
+  canvas.addEventListener("pointercancel",function(){drag=null});
+  var dlg = document.getElementById("acct");
+  var tabUp = document.getElementById("tabUp"), tabIn = document.getElementById("tabIn");
+  var formUp = document.getElementById("formUp"), formIn = document.getElementById("formIn");
+  var dmsg = document.getElementById("dmsg");
+  var lastFocus = null;
+  function setMode(m){
+    var up = m==="up";
+    tabUp.setAttribute("aria-selected",up); tabIn.setAttribute("aria-selected",!up);
+    formUp.hidden = !up; formIn.hidden = up; dmsg.textContent = "";
+  }
+  function openDlg(m){
+    lastFocus = document.activeElement;
+    setMode(m);
+    if(typeof dlg.showModal==="function"){ dlg.showModal(); } else { dlg.setAttribute("open",""); }
+    var first = (m==="up"?document.getElementById("upName"):document.getElementById("inEmail"));
+    if(first) first.focus();
+  }
+  function closeDlg(){ if(typeof dlg.close==="function"){dlg.close();} else {dlg.removeAttribute("open");} if(lastFocus&&lastFocus.focus) lastFocus.focus(); }
+  document.getElementById("openSignup").addEventListener("click",function(){openDlg("up")});
+  document.getElementById("openSignup2").addEventListener("click",function(){openDlg("up")});
+  document.getElementById("openLogin").addEventListener("click",function(){openDlg("in")});
+  document.getElementById("dclose").addEventListener("click",closeDlg);
+  dlg.addEventListener("click",function(e){ if(e.target===dlg) closeDlg(); });
+  tabUp.addEventListener("click",function(){setMode("up")});
+  tabIn.addEventListener("click",function(){setMode("in")});
+  var emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  formUp.addEventListener("submit",function(e){
+    e.preventDefault();
+    var n = document.getElementById("upName").value.trim(), m = document.getElementById("upEmail").value.trim();
+    if(!n){ dmsg.textContent = "Enter your name."; return; }
+    if(!emailRe.test(m)){ dmsg.textContent = "Enter a full email address, like name@domain.com."; return; }
+    dmsg.textContent = n+", you're on the list. We'll write to "+m+" when accounts open.";
+    formUp.reset();
+  });
+  formIn.addEventListener("submit",function(e){
+    e.preventDefault();
+    var m = document.getElementById("inEmail").value.trim();
+    if(!emailRe.test(m)){ dmsg.textContent = "Enter a full email address, like name@domain.com."; return; }
+    dmsg.textContent = "Accounts aren't open yet. Sign up and we'll write to you when they are.";
+  });
+  var aiSection = document.getElementById("ai");
+  var askForm = document.getElementById("askForm"), q = document.getElementById("q");
+  var askBtn = document.getElementById("askBtn"), answer = document.getElementById("answer"), stopBtn = document.getElementById("stop");
+  var ctl = null, sample = null;
+  var CATALOG = PRODUCTS.map(function(p){return "- "+p.name+" ("+p.type+"): "+p.desc}).join("\n");
+  var RULES = "You are Vibehouse AI, the assistant on the website of Vibehouse.\n"
+    + "About Vibehouse: it is a company that owns the Vibe Coders community and a platform for vibe-coded tools and products. Every tool, app and website in it was made by vibe coders. Each product is a separate paid product with its own subscription. Identity, accounts, payments and distribution are shared across all products. Vibehouse is not a freelancer marketplace: nobody hires people or bids on jobs.\n"
+    + "The products are:\n"+CATALOG+"\n"
+    + "Rules: Recommend only products from this list, by exact name. Never invent products, features or company facts. Prices are not published yet: if asked about price, say each product has its own price that will be shown at launch, and do not state any number. If nothing fits, say so in one sentence and suggest signing up to Vibe Coders to ask for it. Answer in under 70 words, in plain text with no markdown, no bullet points and no emoji.";
+  function copyFor(code){
+    if(code==="rate_limited") return "Too many questions right now. Try again in a minute.";
+    if(code==="session_expired") return "Sign in to Claude again, then ask once more.";
+    if(code==="refused") return "I can't help with that one. Ask about the products instead.";
+    if(code==="empty_completion") return "No answer came back. Try rephrasing your question.";
+    return "The AI isn't available right now. Please try again later.";
+  }
+  async function ask(text){
+    if(!sample || !text.trim()) return;
+    if(ctl) ctl.abort();
+    ctl = new AbortController();
+    askBtn.disabled = true; stopBtn.style.display = "block";
+    answer.textContent = "Thinking...";
+    try{
+      var res = await sample(RULES+"\n\nVisitor says: "+text.trim(),{
+        modelTier:"quick", cache:false, signal:ctl.signal,
+        onText:function(o){answer.textContent = o.text;}
+      });
+      answer.textContent = res.text;
+    }catch(e){
+      if(e && e.code==="cancelled"){ answer.textContent = (e.text||""); }
+      else { answer.textContent = (e && e.text ? e.text+"\n\n" : "") + copyFor(e && e.code); }
+    }finally{
+      askBtn.disabled = false; stopBtn.style.display = "none";
+    }
+  }
+  askForm.addEventListener("submit",function(e){e.preventDefault();ask(q.value);});
+  stopBtn.addEventListener("click",function(){if(ctl)ctl.abort();});
+  document.getElementById("tries").addEventListener("click",function(e){
+    var b = e.target.closest("button"); if(!b) return;
+    q.value = b.getAttribute("data-q"); ask(q.value);
+  });
+  (async function(){
+    try{
+      if(window.claude && typeof window.claude.use==="function"){
+        sample = await window.claude.use("sample");
+      }
+    }catch(_){ sample = null; }
+    if(sample){ aiSection.hidden = false; }
+  })();
+})();
+</script>
+</body>
+</html>
