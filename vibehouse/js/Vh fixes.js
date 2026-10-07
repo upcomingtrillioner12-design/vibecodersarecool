@@ -21,9 +21,16 @@
     return String(v);
   }
 
+  function ownerName(p) {
+    try { if (A.user && p && (String(p.ownerId) === String(A.user.id) || A.isProductOwner(p))) return A.user.name || p.owner; } catch (e) {}
+    return p.owner || "";
+  }
+
   // ---------- 1. Plain product cards ----------
-  A.renderProductCards = function (container, list) {
+  const plainCards = function (container, list) {
     if (!container) return;
+    // every product list is the same regular horizontal row layout (like COPLAY on Home)
+    container.classList.remove("products-grid"); container.classList.add("products-list");
     if (!list || !list.length) {
       container.innerHTML = `<div class="empty"><h3>No tools yet</h3><p>Nothing to show here.</p></div>`;
       return;
@@ -41,8 +48,8 @@
         <div class="product-footer">
           <div class="product-price" style="font-weight:700">${esc(priceText(p))}</div>
           <div class="product-owner-row">
-            ${A.ownerAvatarHtml(p, 32)}
-            <div class="product-owner">by <strong>${esc(p.owner || "")}</strong></div>
+            ${A.ownerAvatarHtml(Object.assign({}, p, { owner: ownerName(p) }), 32)}
+            <div class="product-owner">by <strong>${esc(ownerName(p))}</strong></div>
           </div>
         </div>
       </article>`).join("");
@@ -50,6 +57,8 @@
 
   // ---------- 2. My profile ----------
   const previous = A.renderProfile ? A.renderProfile.bind(A) : null;
+  const lock = (name, fn) => Object.defineProperty(A, name, { configurable: true, get: () => fn, set: () => {} });
+  lock("renderProductCards", plainCards);
 
   function myProducts() {
     const uid = String((A.user && A.user.id) || "");
@@ -94,7 +103,7 @@
     });
   }
 
-  A.renderProfile = function (el, id) {
+  const myProfile = function (el, id) {
     const isMe = id === "me" || (A.user && (id === A.user.id || (A.user.username && id === A.user.username)));
     if (!isMe) return previous ? previous(el, id) : undefined;
 
@@ -134,7 +143,7 @@
           </div>
         </div>
         <h2 style="font-size:18px;font-weight:700;margin-bottom:16px">Your tools</h2>
-        <div class="products-grid" id="pfProducts"></div>`;
+        <div class="products-list" id="pfProducts"></div>`;
       A.renderProductCards(document.getElementById("pfProducts"), list);
 
       document.getElementById("pfEdit").onclick = () => openEdit(profile, draw);
@@ -173,6 +182,14 @@
       }).catch(() => {});
     }
   };
+
+  lock("renderProfile", myProfile);
+  window.__VH_FIXES = 2; // console check: type  __VH_FIXES  -> 2
+
+  if (window.VH && VH.pull && !VH.__fixWrapped) {
+    const pull = VH.pull.bind(VH); VH.__fixWrapped = true;
+    VH.pull = async function () { const r = await pull.apply(this, arguments); setTimeout(() => A.route(), 0); return r; };
+  }
 
   // If the page was already painted before this file loaded, repaint once with the fixed renderers
   if (document.getElementById("content") && document.getElementById("content").children.length) A.route();
