@@ -12,23 +12,19 @@
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/css/premium.css">
   <style id="one-loader">
-    /* ONE loading spinner while the page boots. Any other spinner is hidden until boot ends. */
-    html.booting body > *:not(script):not(style) { visibility: hidden !important; }
-    html.booting::after,
-    html.booting body::before,
-    html.booting body::after,
-    html.booting .main::before,
-    html.booting .main::after,
-    html.booting .content::before,
-    html.booting .content::after { content: none !important; display: none !important; animation: none !important; }
-    html.booting .spinner, html.booting .loader, html.booting .loading, html.booting .boot-mask,
-    html.booting .boot-spinner, html.booting [class*="spinner"], html.booting [class*="loader"] { display: none !important; }
+    /* While booting: an opaque full-screen layer with ONE spinner. It sits above everything,
+       so no other spinner (page, product page, content area) can show through. */
     html.booting::before {
-      content: "" !important; display: block !important; position: fixed; z-index: 2147483647;
-      top: 50%; left: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; box-sizing: border-box;
-      border: 3px solid rgba(255,255,255,.18); border-top-color: #a29bfe; border-radius: 50%;
-      background: none !important; animation: vhOneSpin .8s linear infinite !important;
+      content: "" !important; display: block !important; position: fixed !important; inset: 0 !important;
+      z-index: 2147483646 !important; background: #07080c !important; animation: none !important;
     }
+    html.booting::after {
+      content: "" !important; display: block !important; position: fixed !important; z-index: 2147483647 !important;
+      top: 50% !important; left: 50% !important; width: 36px !important; height: 36px !important; margin: -18px 0 0 -18px !important;
+      box-sizing: border-box; border: 3px solid rgba(255,255,255,.18) !important; border-top-color: #a29bfe !important;
+      border-radius: 50% !important; background: none !important; animation: vhOneSpin .8s linear infinite !important;
+    }
+    html.booting body::before, html.booting body::after { content: none !important; display: none !important; }
     @keyframes vhOneSpin { to { transform: rotate(360deg); } }
   </style>
   <script>
