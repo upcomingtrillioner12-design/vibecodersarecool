@@ -150,8 +150,10 @@
   <script src="/js/profile.js"></script>
   <script src="/js/media.js"></script>
   <script src="/js/launch.js?v=2"></script>
-  <!-- MUST stay last: overrides product cards + "my profile" after the files above have set theirs -->
+  <!-- overrides product cards + "my profile" after the files above have set theirs -->
   <script src="/js/vh-fixes.js?v=2"></script>
+  <!-- MUST stay last: compact one-line rows for every product/tool list (replaces the big demo cards) -->
+  <script src="/js/vh-list.js?v=1"></script>
   <script>
     // Keyboard shortcut ⌘K / Ctrl+K for search
     document.addEventListener("keydown", e => {
