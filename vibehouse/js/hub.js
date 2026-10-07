@@ -2,6 +2,14 @@
 // Vibehouse Hub — product types, access mechanisms, submissions,
 // owner editing, tracked views/clicks, dashboard, contact/advertise.
 // Loads after app.js.  Supabase when configured, localStorage otherwise.
+//
+// Debug notes (what changed vs the previous version):
+//  1. Profile "me": removed the duplicate Followers stat.
+//  2. Owner name: your own listings always show your current account name
+//     (no more "CEO" from an old saved value).
+//  3. Edit panel / contact form no longer rely on implicit global element ids.
+//  4. Dashboard + "my profile" lists use the regular horizontal row layout.
+//  5. Notifications read is wrapped in try/catch (bad JSON can't break the top bar).
 // ============================================================
 (function () {
   const CONTACT = "upcomingtrillioner12@gmail.com";
@@ -10,6 +18,7 @@
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const sb = () => (window.VibeBackend && VibeBackend.isReady()) ? VibeBackend.client() : null;
   const num = n => (App.formatNum ? App.formatNum(n) : n);
+  const $id = id => document.getElementById(id);
 
   // ---------- Product types → how users reach them ----------
   const TYPES = {
@@ -40,6 +49,13 @@
   }
   const normUrl = u => { const p = parse(u); return p ? (p.hostname + p.pathname).toLowerCase().replace(/\/$/, "") : ""; };
 
+  // Your own listings always show your current account name
+  const isMineById = p => !!(App.user && p && p.ownerId && String(p.ownerId) === String(App.user.id));
+  function fixOwnerNames() {
+    if (!App.user || !App.user.name) return;
+    PRODUCTS.forEach(p => { if (p.isListing && isMineById(p)) p.owner = App.user.name; });
+  }
+
   // ---------- state ----------
   const VH = {
     stats: LS("vh_stats", {}),
@@ -69,6 +85,7 @@
         const live = new Set(rows.map(r => r.id)), localIds = new Set(LS("vh_listings", []).map(x => x.id));
         for (let i = PRODUCTS.length - 1; i >= 0; i--) if (PRODUCTS[i].isListing && !live.has(PRODUCTS[i].id) && !localIds.has(PRODUCTS[i].id)) PRODUCTS.splice(i, 1);
         rows.forEach(r => merge(mk(fromRow(r, prof[r.owner_id]))));
+        fixOwnerNames();
         const sig = JSON.stringify([rows, prof]); const changed = sig !== this.sig; this.sig = sig;
         save("vh_stats", this.stats); save("vh_live_cache", { rows, prof, sig });
         return changed;
@@ -79,8 +96,9 @@
 
   function fromRow(r, pr) {
     pr = pr || {};
+    const own = App.user && r.owner_id && String(r.owner_id) === String(App.user.id) ? App.user.name : "";
     return { ownerUsername: pr.username || "", ownerAvatarUrl: pr.avatar_url || null, ownerBio: pr.bio || "", ownerRole: pr.headline || "", ownerWebsite: pr.website || "", ownerTwitter: pr.twitter || "", id: r.id, typeKey: r.type_key || SEEDMAP[r.type] || "webapp", name: r.name, category: r.category, desc: r.description, longDesc: r.long_desc,
-      url: r.url, url2: r.url2, cta: r.cta, owner: pr.full_name || r.owner, ownerId: r.owner_id, price: r.price, pricing: r.pricing, logoUrl: r.logo_url, twitter: r.twitter, created: r.created_at,
+      url: r.url, url2: r.url2, cta: r.cta, owner: own || pr.full_name || r.owner, ownerId: r.owner_id, price: r.price, pricing: r.pricing, logoUrl: r.logo_url, twitter: r.twitter, created: r.created_at,
       features: r.features || [], inputs: r.inputs || [], screenshots: r.screenshots || [], video: r.video_url || null, pricingDetails: r.pricing_details || "", version: r.version || "", releaseNotes: r.release_notes || "", github: r.github || "", featured: !!r.featured };
   }
   function normListing(l) { // migrate older local format
@@ -130,7 +148,6 @@
       : p.typeKey === "apk" ? "Opens the maker's site in a new tab. APKs aren't hosted here, so only install from sources you trust"
       : p.typeKey === "mobile" ? "Opens the store page in a new tab"
       : "Opens in a new tab";
-    const pl = (n, w) => n + " " + w + (n === 1 ? "" : "s");
     acts.insertAdjacentHTML("afterend", `<p class="vh-note vh-line">${esc(t.name)} · ${esc(note)} · <b>${num(s.views)}</b> ${s.views === 1 ? "view" : "views"} · <b>${num(s.clicks)}</b> ${s.clicks === 1 ? "open" : "opens"}</p><div id="vhEdit"></div>`);
     if (p.isListing) { // real data only: drop empty/fake blocks on user launches
       el.querySelectorAll(".card").forEach(card => {
@@ -142,24 +159,27 @@
           <div><strong style="display:block;font-size:18px">${p.launched}</strong> Launched</div><div><strong style="display:block;font-size:18px">${esc(t.name)}</strong> Type</div></div>`;
       });
     }
-    document.getElementById("vhEditBtn")?.addEventListener("click", () => editPanel(p));
+    $id("vhEditBtn")?.addEventListener("click", () => editPanel(p));
   };
 
   function editPanel(p) {
-    const t = TYPES[p.typeKey], box = document.getElementById("vhEdit");
+    const t = TYPES[p.typeKey], box = $id("vhEdit");
+    if (!box) return;
     box.innerHTML = `<div class="vh-form" style="margin-top:12px"><div><label>${esc(t.label)}</label><input id="eUrl" type="url" value="${esc(p.url)}" placeholder="${esc(t.ph)}"></div>
       ${p.typeKey === "mobile" ? `<div><label>Google Play link (optional)</label><input id="eUrl2" type="url" value="${esc(p.url2)}" placeholder="https://play.google.com/store/apps/details?id=…"></div>` : ""}
       ${p.typeKey === "agent" ? `<div><label>Button</label><select id="eCta"><option ${p.cta === "Try" ? "selected" : ""}>Try</option><option ${p.cta === "Connect" ? "selected" : ""}>Connect</option></select></div>` : ""}
       <div style="display:flex;gap:8px"><button class="btn btn-primary btn-sm" id="eSave">Save</button><button class="btn btn-ghost btn-sm" id="eDel">Delete listing</button></div><p class="vh-note" id="eOut"></p></div>`;
-    document.getElementById("eSave").onclick = async () => {
-      const url = eUrl.value.trim(), url2 = (document.getElementById("eUrl2")?.value || "").trim(), cta = document.getElementById("eCta")?.value || t.cta;
-      const err = validate(p.typeKey, url, url2); if (err) { eOut.textContent = err; eOut.style.color = "var(--danger)"; return; }
+    const out = $id("eOut");
+    const fail = m => { out.textContent = m; out.style.color = "var(--danger)"; };
+    $id("eSave").onclick = async () => {
+      const url = $id("eUrl").value.trim(), url2 = ($id("eUrl2")?.value || "").trim(), cta = $id("eCta")?.value || t.cta;
+      const err = validate(p.typeKey, url, url2); if (err) return fail(err);
       const c = sb();
-      if (c) { const { error } = await c.from("listings").update({ url, url2: url2 || null, cta }).eq("id", p.id); if (error) { eOut.textContent = "Couldn't save: " + error.message; eOut.style.color = "var(--danger)"; return; } }
+      if (c) { const { error } = await c.from("listings").update({ url, url2: url2 || null, cta }).eq("id", p.id); if (error) return fail("Couldn't save: " + error.message); }
       const all = LS("vh_listings", []).map(l => l.id === p.id ? Object.assign(l, { url, url2, cta }) : l); save("vh_listings", all);
       Object.assign(p, { url, url2, cta }); App.toast("Saved", "success"); App.route();
     };
-    document.getElementById("eDel").onclick = async () => {
+    $id("eDel").onclick = async () => {
       if (!confirm("Delete “" + p.name + "”? This can't be undone.")) return;
       const c = sb(); if (c) { const { error } = await c.from("listings").delete().eq("id", p.id); if (error) return App.toast("Couldn't delete: " + error.message, "error"); }
       save("vh_listings", LS("vh_listings", []).filter(l => l.id !== p.id));
@@ -168,27 +188,27 @@
     };
   }
 
-  // ---------- Launch: 3-step builder submission ----------
+  // ---------- Launch: 3-step builder submission (launch.js replaces this with the 4-step version) ----------
   const PROVIDES = { webapp: "Live URL", agent: "Service URL + description", model: "Hugging Face link or API URL", mobile: "App Store link", apk: "Link to your own site" };
   function renderLaunch(el) {
     if (!App.user) {
       el.innerHTML = `<div class="page-header"><h1 class="page-title">Launch your product</h1><p class="page-sub">Log in to submit a web app, AI agent, AI model, mobile app or APK link.</p></div>
         <div class="vh-actions"><button class="btn btn-primary" id="gLogin">Log in</button><button class="btn btn-ghost" id="gSignup">Sign up</button></div>`;
-      document.getElementById("gLogin").onclick = () => App.openAuth("login");
-      document.getElementById("gSignup").onclick = () => App.openAuth("signup");
+      $id("gLogin").onclick = () => App.openAuth("login");
+      $id("gSignup").onclick = () => App.openAuth("signup");
       return;
     }
     const S = { step: 1, key: null, d: { pricing: "Free", category: CATS[0], cta: "Try", email: App.user.email || "" } };
     const dots = () => `<div class="vh-steps">${["Type", "Details", "Review"].map((n, i) => `<span class="${S.step === i + 1 ? "on" : S.step > i + 1 ? "done" : ""}">${i + 1}. ${n}</span>`).join("")}</div>`;
     const head = sub => `<div class="page-header"><h1 class="page-title">Launch your product</h1><p class="page-sub">${sub}</p></div>${dots()}`;
-    const val = id => (document.getElementById(id)?.value || "").trim();
+    const val = id => ($id(id)?.value || "").trim();
 
     function step1() {
       el.innerHTML = head("What are you launching? Users reach it through the button on your product page.") +
         `<div class="vh-types">${Object.entries(TYPES).map(([k, t]) => `<button type="button" class="vh-type${S.key === k ? " on" : ""}" data-k="${k}"><b>${t.name}</b><span>${t.how}</span><span>You provide: ${PROVIDES[k]}</span><i>Button: “${k === "agent" ? "Try” or “Connect" : t.cta}”</i></button>`).join("")}</div>
         <div class="vh-actions"><button class="btn btn-primary" id="s1Next" ${S.key ? "" : "disabled"}>Continue</button></div>`;
       el.querySelectorAll(".vh-type").forEach(b => b.onclick = () => { S.key = b.dataset.k; step1(); });
-      document.getElementById("s1Next").onclick = () => { S.step = 2; step2(); };
+      $id("s1Next").onclick = () => { S.step = 2; step2(); };
     }
     function step2(err) {
       const t = TYPES[S.key], d = S.d;
@@ -206,9 +226,9 @@
         <div><label>Contact email</label><input id="fEmail" type="email" value="${esc(d.email || "")}"></div>
         <p class="vh-note" id="fErr" style="color:var(--danger)">${esc(err || "")}</p>
         <div class="vh-actions" style="margin:0"><button type="button" class="btn btn-ghost" id="s2Back">Back</button><button class="btn btn-primary">Review</button></div></form>`;
-      document.getElementById("fPricing").onchange = e => { document.getElementById("fPriceWrap").style.display = e.target.value === "Free" ? "none" : "block"; };
-      document.getElementById("s2Back").onclick = () => { collect(); S.step = 1; step1(); };
-      document.getElementById("s2").onsubmit = e => {
+      $id("fPricing").onchange = e => { $id("fPriceWrap").style.display = e.target.value === "Free" ? "none" : "block"; };
+      $id("s2Back").onclick = () => { collect(); S.step = 1; step1(); };
+      $id("s2").onsubmit = e => {
         e.preventDefault(); collect();
         const m = S.d;
         if (m.name.length < 2) return step2("Add a name.");
@@ -223,7 +243,7 @@
       };
     }
     function collect() {
-      if (!document.getElementById("fName")) return;
+      if (!$id("fName")) return;
       Object.assign(S.d, { name: val("fName"), desc: val("fDesc"), longDesc: val("fLong"), url: val("fUrl"), url2: val("fUrl2"), cta: val("fCta") || S.d.cta,
         category: val("fCat"), pricing: val("fPricing"), price: val("fPrice"), logo: val("fLogo"), email: val("fEmail") });
     }
@@ -234,8 +254,8 @@
         <p class="vh-note">The button opens <b>${esc(host)}</b> in a new tab on your product page. ${S.key === "apk" ? "No APK file is hosted here." : ""}</p></div>
         <p class="vh-note" id="gErr" style="color:var(--danger);margin-top:8px">${esc(err || "")}</p>
         <div class="vh-actions"><button class="btn btn-ghost" id="s3Back">Back</button><button class="btn btn-primary" id="s3Go">Launch</button></div>`;
-      document.getElementById("s3Back").onclick = () => { S.step = 2; step2(); };
-      document.getElementById("s3Go").onclick = async ev => {
+      $id("s3Back").onclick = () => { S.step = 2; step2(); };
+      $id("s3Go").onclick = async ev => {
         ev.target.disabled = true;
         const id = d.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) + "-" + Math.random().toString(36).slice(2, 6);
         const l = { id, typeKey: S.key, name: d.name, category: d.category, desc: d.desc, longDesc: d.longDesc, url: d.url, url2: d.url2 || "", cta,
@@ -257,12 +277,12 @@
   // ---------- Dashboard & Contact ----------
   const PAGES = {
     dashboard(el) {
-      if (!App.user) { el.innerHTML = `<div class="page-header"><h1 class="page-title">Dashboard</h1><p class="page-sub">Log in to see your launches and their numbers.</p></div><div class="vh-actions"><button class="btn btn-primary" id="dLogin">Log in</button></div>`; document.getElementById("dLogin").onclick = () => App.openAuth("login"); return; }
+      if (!App.user) { el.innerHTML = `<div class="page-header"><h1 class="page-title">Dashboard</h1><p class="page-sub">Log in to see your launches and their numbers.</p></div><div class="vh-actions"><button class="btn btn-primary" id="dLogin">Log in</button></div>`; $id("dLogin").onclick = () => App.openAuth("login"); return; }
       const list = mine(), tot = list.reduce((a, p) => { const s = VH.get(p.id); a.v += s.views; a.c += s.clicks; return a; }, { v: 0, c: 0 });
       el.innerHTML = `<div class="page-header"><h1 class="page-title">Your launches</h1><p class="page-sub">Real views and clicks for everything you've launched.</p></div>
       <div class="vh-grid"><div class="vh-kpi"><b>${list.length}</b><span>Launches</span></div><div class="vh-kpi"><b>${num(tot.v)}</b><span>Views</span></div><div class="vh-kpi"><b>${num(tot.c)}</b><span>Opens</span></div><div class="vh-kpi"><b>${tot.v ? Math.round(tot.c / tot.v * 100) : 0}%</b><span>Click-through</span></div></div>
-      <div class="vh-actions" style="margin:0 0 16px"><button class="btn btn-primary" onclick="App.go('/launch')">Launch something</button></div><div class="products-grid" id="vhMine"></div>`;
-      const g = document.getElementById("vhMine");
+      <div class="vh-actions" style="margin:0 0 16px"><button class="btn btn-primary" onclick="App.go('/launch')">Launch something</button></div><div class="products-list" id="vhMine"></div>`;
+      const g = $id("vhMine");
       if (list.length) App.renderProductCards(g, list); else g.innerHTML = `<div class="vh-panel"><h3>Nothing launched yet</h3><p class="vh-note">Launch a web app, AI agent, AI model, mobile app or APK link and its numbers appear here.</p></div>`;
     },
     contact(el) {
@@ -272,12 +292,12 @@
       <div><label>Topic</label><select id="cTopic"><option>Advertise</option><option>Featured listing</option><option>Partnership</option><option>Support</option></select></div>
       <div><label>Message</label><textarea id="cMsg" rows="4" required></textarea></div><button class="btn btn-primary" style="justify-content:center">Send</button><p class="vh-note" id="cOut"></p></form></div>
       <div class="vh-grid"><div class="vh-kpi"><b>Featured</b><span>Top of the home feed — on request</span></div><div class="vh-kpi"><b>Spotlight</b><span>Home spotlight banner — on request</span></div><div class="vh-kpi"><b>Sponsored</b><span>Search and category slots — on request</span></div></div>`;
-      document.getElementById("vhContact").onsubmit = async e => {
+      $id("vhContact").onsubmit = async e => {
         e.preventDefault();
-        const m = { name: document.getElementById("cName").value.trim(), email: document.getElementById("cMail").value.trim(), topic: document.getElementById("cTopic").value, message: document.getElementById("cMsg").value.trim() };
+        const m = { name: $id("cName").value.trim(), email: $id("cMail").value.trim(), topic: $id("cTopic").value, message: $id("cMsg").value.trim() };
         const c = sb(); if (c) await c.from("contacts").insert([m]).then(() => {}, () => {});
         save("vh_contacts", [...LS("vh_contacts", []), Object.assign({ at: new Date().toISOString() }, m)]);
-        cOut.textContent = "Saved. Opening your email app to send it…";
+        $id("cOut").textContent = "Saved. Opening your email app to send it…";
         location.href = `mailto:${CONTACT}?subject=${encodeURIComponent("[" + m.topic + "] " + m.name)}&body=${encodeURIComponent(m.message + "\n\nFrom: " + m.email)}`;
       };
     }
@@ -292,12 +312,13 @@
   };
   const origRoute = App.route.bind(App);
   App.route = function () {
+    fixOwnerNames(); // your own tools always show your current name
     const { page } = this.parsePath();
     if (!PAGES[page]) return origRoute();
     this.currentPage = page;
-    document.getElementById("sidebar")?.classList.remove("open");
+    $id("sidebar")?.classList.remove("open");
     document.querySelectorAll(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.page === page));
-    PAGES[page](document.getElementById("content")); this.updateUserChip();
+    PAGES[page]($id("content")); this.updateUserChip();
   };
 
   // ---------- followers & tool counts (real) ----------
@@ -330,18 +351,22 @@
     origProfile(el, id);
     const stats = el.querySelector(".profile-stats");
     if (id === "me") {
-      const list = mine(), grid = document.getElementById("profileProducts");
-      if (grid) { if (list.length) App.renderProductCards(grid, list); else grid.innerHTML = `<div class="vh-panel"><h3>Nothing launched yet</h3><p class="vh-note">Your launches show up here.</p></div>`; }
-      stats?.querySelector(".profile-stat strong") && (stats.querySelector(".profile-stat strong").textContent = list.length);
-      if (stats && App.user) stats.insertAdjacentHTML("beforeend", `<div class="profile-stat"><strong>${App.user.followers || 0}</strong><span>Followers</span></div>`);
+      const list = mine(), grid = $id("profileProducts");
+      if (grid) {
+        grid.classList.remove("products-grid"); grid.classList.add("products-list");
+        if (list.length) App.renderProductCards(grid, list); else grid.innerHTML = `<div class="vh-panel"><h3>Nothing launched yet</h3><p class="vh-note">Your launches show up here.</p></div>`;
+      }
+      // only fix the Tools number: the original profile already draws Karma and Followers (no second Followers stat)
+      const first = stats && stats.querySelector(".profile-stat strong");
+      if (first) first.textContent = list.length;
       return;
     }
     if (!stats) return;
     const on = follows().has(id);
     stats.insertAdjacentHTML("afterend", `<div class="vh-actions" style="margin-top:10px"><button class="btn ${on ? "btn-ghost" : "btn-primary"}" id="vhFollow">${on ? "Following" : "Follow"}</button><span class="vh-note" id="vhFollowers"></span></div>`);
-    const show = async () => { const n = await followerCount(id); document.getElementById("vhFollowers").textContent = n == null ? "" : n + " follower" + (n === 1 ? "" : "s"); };
+    const show = async () => { const n = await followerCount(id); const f = $id("vhFollowers"); if (f) f.textContent = n == null ? "" : n + " follower" + (n === 1 ? "" : "s"); };
     show();
-    document.getElementById("vhFollow").onclick = async e => {
+    $id("vhFollow").onclick = async e => {
       const r = await toggleFollow(id); if (r == null) return;
       e.target.textContent = r ? "Following" : "Follow"; e.target.className = "btn " + (r ? "btn-ghost" : "btn-primary"); show();
     };
@@ -365,7 +390,7 @@
   App.updateUserChip = function () {
     orig();
     const u = this.user, box = $("topUser"), guest = $("topGuest");
-    if (!box) return;
+    if (!box || !guest) return;
     guest.style.display = u ? "none" : "flex";
     box.style.display = u ? "flex" : "none";
     if (!u) return;
@@ -382,8 +407,9 @@
     if (deferred) { deferred.prompt(); deferred = null; }
     else App.toast("Use your browser menu → Install app / Add to Home Screen", "success");
   });
-  const notes = JSON.parse(localStorage.getItem("vh_notifs") || "[]");
-  if (notes.length) { $("bellN").textContent = notes.length; $("bellN").style.display = "grid"; }
+  let notes = [];
+  try { notes = JSON.parse(localStorage.getItem("vh_notifs") || "[]"); if (!Array.isArray(notes)) notes = []; } catch (e) { notes = []; }
+  if (notes.length && $("bellN")) { $("bellN").textContent = notes.length; $("bellN").style.display = "grid"; }
   $("topBell")?.addEventListener("click", () => App.toast(notes.length ? notes.length + " new notifications" : "No new notifications", "success"));
   App.updateUserChip();
 })();
