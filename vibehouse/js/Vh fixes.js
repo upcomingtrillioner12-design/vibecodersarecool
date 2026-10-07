@@ -1,26 +1,23 @@
 // ============================================================
-// vh-fixes.js  -  load AFTER app.js, launch.js and the VHI file
-//   <script src="js/vh-fixes.js"></script>
-// Fixes:
-//  1. Product cards: plain logo + name + type + one-liner + price + owner
-//     (no screenshot, no "Demo" badge). Same card is used on Home,
-//     Search, Deals and Profile.
-//  2. "My profile" (/profile/me): real data from the profiles row,
-//     one Followers stat, tools listed as plain cards, working
-//     Edit profile + photo upload.
+// vh-fixes.js  -  must be the LAST script in index.html
+// (after app.js, hub.js, profile.js, media.js and launch.js, so it wins).
+//  1. Plain product cards on Home, Search, Deals and Profile:
+//     logo + name + type + one-liner + price + owner.
+//  2. /profile/me uses the real profiles row: name, @username,
+//     headline, bio, one Followers stat, plain tool cards,
+//     working Edit profile + photo upload.
 // Other makers' profiles still use the existing renderer.
 // ============================================================
 (function () {
   const A = window.App;
-  if (!A) { console.warn("[vh-fixes] App not found, load this file after app.js"); return; }
-
+  if (!A) { console.warn("[vh-fixes] App not found"); return; }
   const esc = s => A.esc(s);
 
-  // Price text: "Free", "₹499/mo", "$12/mo". Numbers are shown with ₹ when currency is INR.
+  // "Free", "₹499/mo", "$12/mo". Saved price strings already carry their symbol.
   function priceText(p) {
     const v = p.price !== undefined && p.price !== null && p.price !== "" ? p.price : p.pricing;
     if (v === undefined || v === null || v === "" || v === 0 || p.priceValue === 0 || /^free$/i.test(String(v))) return "Free";
-    if (typeof v === "number") return (p.currency === "INR" ? "₹" : "$") + v;
+    if (typeof v === "number") return (p.currency === "USD" ? "$" : "₹") + v;
     return String(v);
   }
 
@@ -143,6 +140,7 @@
       document.getElementById("pfEdit").onclick = () => openEdit(profile, draw);
       const box = document.getElementById("pfAvatar"), inp = document.getElementById("pfPhoto");
       box.onclick = () => inp.click();
+      inp.onclick = e => e.stopPropagation();
       inp.onchange = async e => {
         const file = e.target.files && e.target.files[0];
         if (!file || !file.type.startsWith("image/")) return A.toast("Please choose an image file", "error");
@@ -161,7 +159,7 @@
 
     draw();
 
-    // Refresh from the real profiles row, then repaint only if something changed
+    // Refresh from the real profiles row, repaint only if something changed
     if (window.VibeBackend && VibeBackend.isReady() && A.user.id) {
       VibeBackend.getProfile(A.user.id).then(row => {
         if (!row) return;
@@ -175,4 +173,7 @@
       }).catch(() => {});
     }
   };
+
+  // If the page was already painted before this file loaded, repaint once with the fixed renderers
+  if (document.getElementById("content") && document.getElementById("content").children.length) A.route();
 })();
