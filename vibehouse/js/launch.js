@@ -3,6 +3,7 @@
 // Type → Details → Media (logo, screenshots, demo video) → Review.
 // Files go to Supabase Storage (bucket: listing-media); offline
 // mode keeps compressed images in the browser and needs a video link.
+// Price supports ₹ INR and $ USD (saved as e.g. "₹499/mo").
 // ============================================================
 (function () {
   const { TYPES, CATS, validate, parse, normUrl, mk, merge, sb, LS, save, esc } = window.VHI;
@@ -10,8 +11,15 @@
   const MAX = { logo: 3 * 1024 * 1024, shot: 8 * 1024 * 1024, video: 50 * 1024 * 1024, shots: 8, features: 10 };
   const PROVIDES = { webapp: "Live URL", agent: "Service URL + description", model: "Hugging Face link or API URL", mobile: "App Store link", apk: "Link to your own site" };
   const IMG = /^image\/(png|jpeg|webp|gif)$/, VID = /^video\/(mp4|webm|quicktime)$/;
+  const CUR = { INR: "₹", USD: "$" };
   const online = () => !!(App.backendReady && window.VibeBackend && VibeBackend.isReady());
   const mb = n => (n / 1048576).toFixed(0) + " MB";
+
+  // "499/mo", "₹499/mo", "rs 499", "$12" -> "₹499/mo" / "$12" using the chosen currency
+  function fmtPrice(cur, raw) {
+    const rest = String(raw || "").trim().replace(/^(₹|\$|inr|usd|rs\.?)\s*/i, "");
+    return rest ? (CUR[cur] || "₹") + rest : "";
+  }
 
   // shrink big images before upload / offline storage
   function shrink(file, maxDim, q, asBlob) {
@@ -38,7 +46,7 @@
       return;
     }
     const S = { step: 1, key: null, logo: null, shots: [], vfile: null,
-      d: { pricing: "Free", category: CATS[0], cta: "Try", email: App.user.email || "", features: [], inputs: [] } };
+      d: { pricing: "Free", currency: "INR", category: CATS[0], cta: "Try", email: App.user.email || "", features: [], inputs: [] } };
     const dots = () => `<div class="vh-steps">${["Type", "Details", "Media", "Review"].map((n, i) => `<span class="${S.step === i + 1 ? "on" : S.step > i + 1 ? "done" : ""}">${i + 1}. ${n}</span>`).join("")}</div>`;
     const head = sub => `<div class="page-header"><h1 class="page-title">Launch your product</h1><p class="page-sub">${sub}</p></div>${dots()}`;
     const val = id => (document.getElementById(id)?.value || "").trim();
@@ -64,7 +72,9 @@
         ${S.key === "agent" ? `<div><label for="fCta">Button</label><select id="fCta"><option ${d.cta === "Try" ? "selected" : ""}>Try</option><option ${d.cta === "Connect" ? "selected" : ""}>Connect</option></select></div>` : ""}
         <div class="vh-row2"><div><label for="fCat">Category</label><select id="fCat">${CATS.map(c => `<option ${d.category === c ? "selected" : ""}>${c}</option>`).join("")}</select></div>
           <div><label for="fPricing">Pricing model</label><select id="fPricing">${["Free", "Freemium", "Free trial", "Paid"].map(c => `<option ${d.pricing === c ? "selected" : ""}>${c}</option>`).join("")}</select></div></div>
-        <div id="fPriceWrap" style="display:${d.pricing === "Free" ? "none" : "block"}"><div class="vh-row2"><div><label for="fPrice">Price (e.g. $12/mo)</label><input id="fPrice" maxlength="30" value="${esc(d.price || "")}"></div>
+        <div id="fPriceWrap" style="display:${d.pricing === "Free" ? "none" : "block"}"><div class="vh-row2"><div><label for="fPrice">Price (e.g. 499/mo)</label>
+            <div style="display:flex;gap:8px"><select id="fCur" aria-label="Currency" style="width:120px;flex:none"><option value="INR" ${d.currency !== "USD" ? "selected" : ""}>₹ INR</option><option value="USD" ${d.currency === "USD" ? "selected" : ""}>$ USD</option></select>
+            <input id="fPrice" maxlength="30" value="${esc(d.price || "")}" placeholder="499/mo" style="flex:1;min-width:0"></div></div>
           <div><label for="fPD">Pricing details (optional)</label><input id="fPD" maxlength="200" value="${esc(d.pricingDetails || "")}" placeholder="e.g. 7-day free trial, cancel anytime"></div></div></div>
         <div><label>Supported inputs</label><div class="vh-chips" id="fInputs">${INPUTS.map(x => `<span class="vh-chip2${d.inputs.includes(x) ? " on" : ""}" data-v="${x}" role="button" tabindex="0">${x}</span>`).join("")}</div></div>
         <div><label for="fFeatInp">Key features (up to ${MAX.features})</label><div class="vh-chips" id="fFeat" style="margin-bottom:8px"></div><input id="fFeatInp" maxlength="30" placeholder="Type a feature and press Enter"></div>
@@ -92,7 +102,7 @@
         if ((m.longDesc || "").length < 40) return step2("Write a full description of at least 40 characters so people understand the product.");
         const er = validate(S.key, m.url, m.url2); if (er) return step2(er);
         if (m.github && !/^https:\/\/(www\.)?github\.com\/[\w.-]+\/[\w.-]+/i.test(m.github)) return step2("GitHub link must look like https://github.com/you/project.");
-        if (m.pricing !== "Free" && !m.price) return step2("Add the price, for example $12/mo.");
+        if (m.pricing !== "Free" && !fmtPrice(m.currency, m.price)) return step2("Add the price, for example 499/mo.");
         if (!/^\S+@\S+\.\S+$/.test(m.email)) return step2("Add a valid contact email.");
         const dup = PRODUCTS.find(p => p.url && normUrl(p.url) === normUrl(m.url)); if (dup) return step2("This link is already listed as “" + dup.name + "”.");
         go(3);
@@ -101,19 +111,19 @@
     function collect() {
       if (!document.getElementById("fName")) return;
       Object.assign(S.d, { name: val("fName"), desc: val("fDesc"), longDesc: val("fLong"), url: val("fUrl"), url2: val("fUrl2"), cta: val("fCta") || S.d.cta,
-        category: val("fCat"), pricing: val("fPricing"), price: val("fPrice"), pricingDetails: val("fPD"), version: val("fVer"), github: val("fGit"),
+        category: val("fCat"), pricing: val("fPricing"), currency: val("fCur") || S.d.currency, price: val("fPrice"), pricingDetails: val("fPD"), version: val("fVer"), github: val("fGit"),
         releaseNotes: val("fRel"), email: val("fEmail"), featured: !!document.getElementById("fFeatured")?.checked });
     }
 
     // ----- media step -----
     function step3(err) {
       const d = S.d, on = online();
-      el.innerHTML = head("Show people what it looks like. A logo, screenshots and a demo video are required, and they appear on your product page and card.") + `<form id="s3" class="vh-form xl" novalidate>
+      el.innerHTML = head("Show people what it looks like. A logo, screenshots and a demo video are required. Screenshots and the video appear on your product page once someone opens it.") + `<form id="s3" class="vh-form xl" novalidate>
         <div><label>Logo (required) <span class="vh-count">PNG, JPG or WebP · up to ${mb(MAX.logo)}</span></label>
           <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><div id="logoPrev">${S.logo ? `<img class="vh-logo-prev" src="${esc(S.logo.preview)}" alt="Logo preview">` : ""}</div>
           <button type="button" class="btn btn-ghost" id="logoBtn">${S.logo ? "Change logo" : "Upload logo"}</button><input type="file" id="logoIn" accept="image/png,image/jpeg,image/webp" style="display:none"></div></div>
         <div><label>Screenshots (at least 1, up to ${MAX.shots}) <span class="vh-count">PNG, JPG, WebP or GIF · up to ${mb(MAX.shot)} each</span></label>
-          <div class="vh-drop" id="shotDrop" tabindex="0" role="button"><b>Drop screenshots here or click to choose</b><span class="vh-note">Show the main screen first, it becomes the card preview.</span></div>
+          <div class="vh-drop" id="shotDrop" tabindex="0" role="button"><b>Drop screenshots here or click to choose</b><span class="vh-note">Show the main screen first. Screenshots are shown on your product page.</span></div>
           <input type="file" id="shotIn" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none"><div class="vh-thumbs" id="shotGrid"></div></div>
         <div><label>Demo video (required)</label>
           <div><label for="fVideo" style="font-weight:400">Paste a YouTube, Vimeo, Loom or direct .mp4 link</label><input id="fVideo" type="url" value="${esc(d.video || "")}" placeholder="https://www.youtube.com/watch?v=…"></div>
@@ -162,10 +172,11 @@
     // ----- review + launch -----
     function step4(err) {
       const t = TYPES[S.key], d = S.d, cta = S.key === "agent" ? d.cta : t.cta, host = (parse(d.url) || {}).hostname || "";
+      const shownPrice = d.pricing === "Free" ? "Free" : (fmtPrice(d.currency, d.price) || d.pricing);
       el.innerHTML = head("Check how it will look, then launch.") + `<div class="vh-panel" style="margin-top:0;max-width:760px">
         <div style="display:flex;gap:16px;align-items:center"><img class="vh-logo-prev" src="${esc(S.logo.preview)}" alt=""><div><h3 style="margin:0">${esc(d.name)} <span class="vh-badge">${t.name}</span></h3><p class="vh-note" style="margin:4px 0 0">${esc(d.desc)}</p></div></div>
         <div class="vh-thumbs">${S.shots.map(s => `<div class="vh-thumb"><img src="${esc(s.preview)}" alt=""></div>`).join("")}</div>
-        <p class="vh-note" style="margin-top:12px">${esc(d.pricing)}${d.price && d.pricing !== "Free" ? " · " + esc(d.price) : ""} · ${esc(d.category)}${d.features.length ? " · " + d.features.map(esc).join(", ") : ""}</p>
+        <p class="vh-note" style="margin-top:12px">${esc(d.pricing)}${d.pricing !== "Free" ? " · " + esc(shownPrice) : ""} · ${esc(d.category)}${d.features.length ? " · " + d.features.map(esc).join(", ") : ""}</p>
         <p class="vh-note">Demo video: ${S.vfile ? "uploaded file (" + esc(S.vfile.file.name) + ")" : esc(d.video)}</p>
         <div class="vh-actions" style="margin:12px 0 4px"><button class="btn btn-primary" type="button" tabindex="-1">${esc(cta)} ↗</button></div>
         <p class="vh-note">The button opens <b>${esc(host)}</b> in a new tab on your product page.</p>
@@ -190,7 +201,7 @@
           let video = d.video; if (S.vfile) { stat.textContent = "Uploading video… this can take a minute"; video = await put(S.vfile.file, "video"); tick("Video uploaded"); }
           stat.textContent = "Publishing…";
           const id = d.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) + "-" + Math.random().toString(36).slice(2, 6);
-          const price = d.pricing === "Free" ? "Free" : (d.price || d.pricing);
+          const price = d.pricing === "Free" ? "Free" : (fmtPrice(d.currency, d.price) || d.pricing);
           const l = { id, typeKey: S.key, name: d.name, category: d.category, desc: d.desc, longDesc: d.longDesc, url: d.url, url2: d.url2 || "", cta,
             owner: App.user.name, ownerId: App.user.id || "me", ownerEmail: d.email, pricing: d.pricing, price, pricingDetails: d.pricingDetails || "", logoUrl,
             screenshots: shotUrls, video, features: d.features, inputs: d.inputs, version: d.version || "", releaseNotes: d.releaseNotes || "", github: d.github || "", featured: false, created: new Date().toISOString() };
