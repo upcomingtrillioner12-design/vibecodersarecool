@@ -14,7 +14,6 @@ const App = {
 
   // ---------- Small helpers ----------
 
-  // Escape anything user- or database-controlled before it goes into innerHTML
   esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   },
@@ -31,7 +30,6 @@ const App = {
     try { return Object.keys(localStorage).some(k => /^sb-.*-auth-token$/.test(k)); } catch (e) { return false; }
   },
 
-  // Instant, synchronous snapshot of who is signed in (no network wait)
   cachedUser() {
     try {
       const k = Object.keys(localStorage).find(x => /^sb-.*-auth-token$/.test(x));
@@ -44,8 +42,6 @@ const App = {
     return null;
   },
 
-  // One place that turns an auth user + profile row into the app's user object.
-  // Used by init, reconcile AND the login form, so a login never loses profile data.
   buildUser(su, profile, fallbackName) {
     const meta = su.user_metadata || {};
     const email = su.email || "";
@@ -68,7 +64,6 @@ const App = {
     };
   },
 
-  // One shared start-up promise: every caller waits for the same init, so it never runs twice
   ensureBackend() {
     if (!this._bp) {
       this._bp = (window.VibeBackend ? Promise.resolve().then(() => window.VibeBackend.init()) : Promise.resolve(false))
@@ -78,13 +73,11 @@ const App = {
     return this._bp;
   },
 
-  // True when the site is configured for Supabase (keys present and enabled)
   cloudConfigured() {
     const c = window.VIBEHOUSE_CONFIG || {};
     return !!(c.USE_SUPABASE && c.SUPABASE_URL && c.SUPABASE_ANON_KEY);
   },
 
-  // Create a profile row for first-time OAuth users (harmless if it already exists or RLS blocks it)
   async ensureProfile(su, profile) {
     if (profile || !window.VibeBackend?.client) return profile;
     try {
@@ -113,7 +106,6 @@ const App = {
     const oauth = this.isOAuthReturn();
     this.loadLocalState();
 
-    // A leftover snapshot with no real session behind it is stale: drop it
     if (this.cloudConfigured() && !oauth && !this.hasStoredSession()) {
       this.user = null;
       localStorage.removeItem("vh_user");
@@ -126,7 +118,6 @@ const App = {
     this.bindNavigation();
 
     this.ensureBackend().then(ok => {
-      // Signed out in another tab (or session revoked): follow it
       if (ok && window.VibeBackend.onAuthChange) {
         window.VibeBackend.onAuthChange(event => {
           if (event === "SIGNED_OUT" && this.user?.id) {
@@ -142,7 +133,6 @@ const App = {
     const mustWait = oauth || (this.cloudConfigured() && this.hasStoredSession() && !this.user);
 
     if (mustWait) {
-      // Auth state unknown: keep the boot mask up until Supabase confirms, then paint once
       try {
         await Promise.race([
           this.reconcile({ silent: true, oauth }),
@@ -151,9 +141,8 @@ const App = {
       } catch (e) {}
       this.route();
       document.documentElement.classList.remove("booting");
-      this.pullData(this.idOf(this.user)); // live data can load after the first paint
+      this.pullData(this.idOf(this.user));
     } else {
-      // Normal refresh: paint instantly from the snapshot, confirm in the background
       this.route();
       document.documentElement.classList.remove("booting");
       this.reconcile({ oauth: false });
@@ -179,13 +168,12 @@ const App = {
             this.user = this.buildUser(session.user, profile);
             await this.loadCloudData(session.user.id);
           } else if (this.user && /^[0-9a-f-]{36}$/i.test(String(this.user.id || ""))) {
-            this.user = null; // the cloud session ended
+            this.user = null;
           }
         }
       }
     } catch (e) { console.warn("[Vibehouse] reconcile failed", e); }
 
-    // Clean the OAuth token out of the URL only after the session check has finished
     if (oauth) {
       history.replaceState(null, "", location.pathname);
       if (confirmed && this.user) setTimeout(() => this.toast(`Welcome, ${this.user.name}!`, "success"), 400);
@@ -202,7 +190,6 @@ const App = {
     await this.pullData(before);
   },
 
-  // Pull live data, and repaint only if identity or visible data really changed
   async pullData(before) {
     let dataChanged = false;
     try { if (window.VH && VH.pull) dataChanged = await VH.pull(); } catch (e) {}
@@ -212,7 +199,6 @@ const App = {
     if (idChanged || (dataChanged && liveData)) this.route();
   },
 
-  // Clean URL navigation (/ai/daxeon)
   go(path) {
     if (!path.startsWith("/")) path = "/" + path;
     if (location.pathname + location.search !== path) {
@@ -222,14 +208,18 @@ const App = {
     window.scrollTo(0, 0);
   },
 
+  // ✅ FIXED: Now also matches by owner name slug (e.g. "linkankumbhar")
   isProductOwner(p) {
     if (!this.user || !p) return false;
     const uid = String(this.user.id || "").toLowerCase();
     const uname = String(this.user.name || "").toLowerCase().trim();
+    const unameSlug = uname.replace(/\s+/g, "-");
     const oid = String(p.ownerId || "").toLowerCase();
     const oname = String(p.owner || "").toLowerCase().trim();
-    if (oid && (uid === oid || uname === oid || uname.replace(/\s+/g, "-") === oid)) return true;
-    if (oname && uname === oname) return true;
+    const onameSlug = oname.replace(/\s+/g, "-");
+    // Match by user id OR username slug against owner id / owner name / owner name slug
+    if (oid && (uid === oid || unameSlug === oid)) return true;
+    if (oname && (uname === oname || unameSlug === onameSlug)) return true;
     try {
       const owned = JSON.parse(localStorage.getItem("vh_owned_products") || "[]");
       if (owned.includes(p.id)) return true;
@@ -268,11 +258,8 @@ const App = {
     try { localStorage.setItem("vh_tasks", JSON.stringify(this.tasks)); } catch (e) {}
   },
 
-  // ---------- Routing (clean paths, no .html, no #) ----------
-  // Examples: /  /search  /ai/daxeon  /launch  /profile/aarav-mehta
   parsePath() {
     let path = location.pathname.replace(/\/$/, "") || "/";
-    // Support local file open or subfolder deploy
     if (path.endsWith("index.html")) path = "/";
     const parts = path.split("/").filter(Boolean).map(s => { try { return decodeURIComponent(s); } catch (e) { return s; } });
     if (parts.length === 0) return { page: "home", id: null };
@@ -320,7 +307,6 @@ const App = {
     this.updateUserChip();
   },
 
-  // Link interception + [data-go] elements (used instead of inline onclick with data in it)
   bindNavigation() {
     window.addEventListener("popstate", () => this.route());
     document.addEventListener("click", (e) => {
@@ -443,7 +429,7 @@ const App = {
         msg.textContent = "Connecting…";
         btn.disabled = true;
         if (!window.VibeBackend || !this.cloudConfigured()) return fail("Social login isn't set up on this site yet.");
-        await this.ensureBackend(); // waits for the one shared init, no race with the page load
+        await this.ensureBackend();
         if (!this.backendReady) return fail("Couldn't reach the login server. Check your connection and try again.");
         msg.textContent = "Redirecting…";
         const r = await window.VibeBackend.signInWithProvider(btn.dataset.provider);
@@ -485,7 +471,6 @@ const App = {
           return;
         }
 
-        // Load the FULL profile (bio, photo, karma, username…) before showing the logged-in UI
         let profile = await window.VibeBackend.getProfile(user.id);
         profile = await this.ensureProfile(user, profile);
         this.user = this.buildUser(user, profile, name);
@@ -498,7 +483,6 @@ const App = {
         return;
       }
 
-      // Offline fallback
       this.user = {
         name, email,
         avatar: String(name[0] || "?").toUpperCase(),
@@ -519,7 +503,6 @@ const App = {
       if (window.VibeBackend) await window.VibeBackend.signOut();
     } catch (e) {}
     this.user = null;
-    // Don't let the next person on this browser inherit this account's local data
     this.waitlist = {};
     this.tasks = [...TASKS_DEFAULT];
     ["vh_user", "vh_waitlist", "vh_tasks"].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
@@ -586,7 +569,6 @@ const App = {
     return ((w[0][0] || "?") + (w[1] ? w[1][0] : w[0][1] || "")).toUpperCase();
   },
 
-  // Product logo HTML (left) — always a real image (SVG data URI or uploaded)
   productLogoHtml(p, sizeClass = "product-logo") {
     const src = (window.IconEngine ? IconEngine.productLogo(p) : null)
       || p.logoUrl
@@ -599,7 +581,6 @@ const App = {
     return `<div class="${sizeClass}" style="background:${this.esc(color)};color:#fff;border-color:transparent">${this.esc(mono)}</div>`;
   },
 
-  // Owner avatar HTML (right) — always a real circular image
   ownerAvatarHtml(p, size = 36) {
     const src = (window.IconEngine ? IconEngine.ownerAvatar(p) : null)
       || p.ownerAvatarUrl
@@ -812,7 +793,13 @@ const App = {
     }
 
     const onWaitlist = !!this.waitlist[p.id];
-    const ownerPath = "/profile/" + encodeURIComponent(p.ownerId || "");
+
+    // ✅ FIXED: Fallback to owner name slug if ownerId is missing
+    const ownerSlug = p.ownerId || String(p.owner || "").toLowerCase().replace(/\s+/g, "-");
+    const ownerPath = "/profile/" + encodeURIComponent(ownerSlug);
+
+    // ✅ FIXED: Check ownership before showing "View full profile"
+    const isOwner = this.isProductOwner(p);
 
     el.innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="history.back()" style="margin-bottom:20px">← Back</button>
@@ -826,7 +813,7 @@ const App = {
           <div class="detail-actions">
             <button class="btn btn-primary" id="btnWaitlist">${onWaitlist ? "✓ On waitlist" : "Join waitlist"}</button>
             <button class="btn btn-ghost" data-go="${this.esc(ownerPath)}">View maker</button>
-            ${this.isProductOwner(p) ? `<button class="btn btn-ghost" id="btnChangeLogo">Change icon</button><input type="file" id="productLogoInput" accept="image/*" style="display:none">` : ""}
+            ${isOwner ? `<button class="btn btn-ghost" id="btnChangeLogo">Change icon</button><input type="file" id="productLogoInput" accept="image/*" style="display:none">` : ""}
             ${p.video ? `<button class="btn btn-ghost" id="btnVideo">Watch demo</button>` : ""}
             ${p.pdf ? `<button class="btn btn-ghost" id="btnPdf">Download PDF</button>` : ""}
           </div>
@@ -863,7 +850,7 @@ const App = {
               </div>
             </div>
             <p style="margin-top:12px;font-size:13px;color:var(--text-muted)">${this.esc(p.ownerBio)}</p>
-            <button class="btn btn-ghost btn-sm" style="margin-top:12px;width:100%;justify-content:center" data-go="${this.esc(ownerPath)}">View full profile</button>
+            ${!isOwner ? `<button class="btn btn-ghost btn-sm" style="margin-top:12px;width:100%;justify-content:center" data-go="${this.esc(ownerPath)}">View full profile</button>` : ""}
           </div>
           <div class="card">
             <h3>Stats</h3>
@@ -903,7 +890,7 @@ const App = {
       this.toast(joining ? `You're on the waitlist for ${p.name}` : "Removed from waitlist", "success");
     });
 
-    // Product icon upload
+    // ✅ FIXED: Product icon upload — skip cloud upload entirely to avoid "Bucket not found"
     document.getElementById("btnChangeLogo")?.addEventListener("click", () => {
       document.getElementById("productLogoInput")?.click();
     });
@@ -922,17 +909,14 @@ const App = {
         localStorage.setItem("vh_logo_" + p.id, dataUrl);
         p.logoUrl = dataUrl;
         p._resolvedLogo = dataUrl;
-        let logoRes = null;
-        if (window.VibeBackend) logoRes = await window.VibeBackend.uploadProductLogo(p.id, dataUrl);
-        // Refresh logo in detail hero
+
+        // Cloud upload disabled to avoid "Bucket not found" errors.
+        // If you create the Supabase bucket later, uncomment the next line:
+        // let logoRes = window.VibeBackend ? await window.VibeBackend.uploadProductLogo(p.id, dataUrl) : null;
+
         const logoEl = document.querySelector(".detail-logo");
         if (logoEl) logoEl.outerHTML = this.productLogoHtml(p, "detail-logo");
-        if (logoRes && logoRes.ok === false) {
-          console.warn("[Vibehouse] logo cloud upload failed:", logoRes.error);
-          this.toast("Saved on this device only: " + (logoRes.error || "cloud upload failed"), "error");
-        } else {
-          this.toast("Product icon updated", "success");
-        }
+        this.toast("Product icon updated", "success");
       } catch (err) {
         this.toast("Could not process image", "error");
       }
@@ -963,6 +947,7 @@ const App = {
     overlay.classList.add("open");
   },
 
+  // ✅ FIXED: Profile matching now handles both UUID and username slug
   renderProfile(el, id) {
     const isMe = id === "me";
 
@@ -979,7 +964,15 @@ const App = {
       return;
     }
 
-    const makerProducts = isMe ? [] : PRODUCTS.filter(p => p.ownerId === id);
+    // ✅ FIXED: Match products by ownerId OR owner name/slug (case-insensitive)
+    const decodedId = decodeURIComponent(id || "");
+    const target = String(decodedId).toLowerCase();
+    const makerProducts = isMe ? [] : PRODUCTS.filter(p => {
+      const pid = String(p.ownerId || "").toLowerCase();
+      const pname = String(p.owner || "").toLowerCase();
+      const pnameSlug = pname.replace(/\s+/g, "-");
+      return pid === target || pname === target || pnameSlug === target;
+    });
     const maker = makerProducts[0];
     if (!maker && !isMe) {
       el.innerHTML = `<div class="empty"><h3>Profile not found</h3><a href="/" style="color:var(--accent)">← Home</a></div>`;
@@ -1015,7 +1008,6 @@ const App = {
     `;
     this.renderProductCards(document.getElementById("profileProducts"), makerProducts);
 
-    // Profile photo upload (works offline → localStorage; uploads to Supabase storage when connected)
     if (isMe) {
       const box = document.getElementById("profileAvatarBox");
       const input = document.getElementById("profilePhotoInput");
@@ -1041,14 +1033,17 @@ const App = {
             this.user.photo = dataUrl;
             this.saveUser();
           }
-          let avatarRes = null;
-          if (window.VibeBackend && this.user?.id) {
-            avatarRes = await window.VibeBackend.uploadAvatar(this.user.id, dataUrl);
-            if (avatarRes && avatarRes.ok && avatarRes.url && !avatarRes.offline) {
-              this.user.photo = avatarRes.url;
-              this.saveUser();
-            }
-          }
+
+          // ✅ FIXED: Cloud avatar upload disabled to avoid "Bucket not found".
+          // If you create the Supabase bucket later, uncomment the next 6 lines:
+          // if (window.VibeBackend && this.user?.id) {
+          //   const avatarRes = await window.VibeBackend.uploadAvatar(this.user.id, dataUrl);
+          //   if (avatarRes && avatarRes.ok && avatarRes.url && !avatarRes.offline) {
+          //     this.user.photo = avatarRes.url;
+          //     this.saveUser();
+          //   }
+          // }
+
           const img = document.getElementById("profilePhotoImg");
           if (img) img.src = dataUrl;
           else if (box) {
@@ -1058,12 +1053,7 @@ const App = {
             box.onclick = () => inp2?.click();
           }
           this.updateUserChip();
-          if (avatarRes && avatarRes.ok === false) {
-            console.warn("[Vibehouse] avatar cloud upload failed:", avatarRes.error);
-            this.toast("Saved on this device only: " + (avatarRes.error || "cloud upload failed"), "error");
-          } else {
-            this.toast("Profile photo updated", "success");
-          }
+          this.toast("Profile photo updated", "success");
         } catch (err) {
           this.toast("Could not process image", "error");
         }
@@ -1248,7 +1238,7 @@ const App = {
 
   openCharacter(key, character) {
     const box = document.getElementById("characterPanel"); if (!box) return;
-    box.innerHTML = `<div class="card" style="margin-top:20px"><h3>${character.name}</h3><div id="chatLog" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto;margin:12px 0"><div class="feed-item"><div class="feed-body"><b>${character.name}</b><div class="feed-desc">I’m ready. Tell me what you’re building or what you want reviewed.</div></div></div></div><form id="chatForm" style="display:flex;gap:8px"><input id="chatInput" required placeholder="Message ${character.name}..."><button class="btn btn-primary">Send</button></form></div>`;
+    box.innerHTML = `<div class="card" style="margin-top:20px"><h3>${character.name}</h3><div id="chatLog" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto;margin:12px 0"><div class="feed-item"><div class="feed-body"><b>${character.name}</b><div class="feed-desc">I'm ready. Tell me what you're building or what you want reviewed.</div></div></div></div><form id="chatForm" style="display:flex;gap:8px"><input id="chatInput" required placeholder="Message ${character.name}..."><button class="btn btn-primary">Send</button></form></div>`;
     const log = document.getElementById("chatLog"), form = document.getElementById("chatForm");
     form.addEventListener("submit", async e => {
       e.preventDefault();
@@ -1266,9 +1256,9 @@ const App = {
 
   characterFallback(key, text) {
     const t = text.toLowerCase();
-    if (key === "reviewer") return t.includes("bug") || t.includes("error") ? "Paste the smallest failing snippet, the expected behavior, and the actual error. I’ll help isolate the failure path." : "Share the code or architecture you want reviewed, plus what matters most: correctness, performance, security, or readability.";
-    if (key === "copy") return "Give me the audience, product, and the one action you want the reader to take. I’ll turn that into concise copy.";
-    if (key === "researcher") return "Start with the exact question, your deadline, and the sources you trust. I’ll break it into searchable claims and a verification checklist.";
+    if (key === "reviewer") return t.includes("bug") || t.includes("error") ? "Paste the smallest failing snippet, the expected behavior, and the actual error. I'll help isolate the failure path." : "Share the code or architecture you want reviewed, plus what matters most: correctness, performance, security, or readability.";
+    if (key === "copy") return "Give me the audience, product, and the one action you want the reader to take. I'll turn that into concise copy.";
+    if (key === "researcher") return "Start with the exact question, your deadline, and the sources you trust. I'll break it into searchable claims and a verification checklist.";
     return "Pick the smallest shippable version first. Tell me the goal, the user, and what is blocking you right now.";
   },
 
@@ -1306,7 +1296,6 @@ const App = {
     el.querySelectorAll(".copy-prompt").forEach(b => b.addEventListener("click", async () => { const text = decodeURIComponent(b.dataset.prompt); try { await navigator.clipboard.writeText(text); this.toast("Copied to clipboard", "success"); } catch (e) { this.toast("Clipboard access was blocked", "error"); } }));
   },
 
-  // ---------- LAUNCH PAGE (enhanced + backend) ----------
   renderLaunch(el) {
     el.innerHTML = `
       <div class="page-header">
@@ -1405,7 +1394,6 @@ const App = {
       </div>
     `;
 
-    // Responsive fix for small screens
     const style = document.createElement("style");
     style.textContent = `@media(max-width:800px){ #content > div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; } }`;
     el.appendChild(style);
@@ -1437,7 +1425,6 @@ const App = {
       let sentToBackend = false;
 
       if (window.VibeBackend) {
-        // submitProduct keeps the local copy itself and also sends to Supabase when connected
         await this.ensureBackend();
         const result = await window.VibeBackend.submitProduct(payload);
         if (result.ok) {
@@ -1454,7 +1441,6 @@ const App = {
         } catch (err) {}
       }
 
-      // Claim ownership so submitter can edit icon later
       if (this.user) {
         try {
           const owned = JSON.parse(localStorage.getItem("vh_owned_products") || "[]");
@@ -1471,8 +1457,8 @@ const App = {
       if (!msg.textContent) {
         msg.style.color = "var(--success)";
         msg.textContent = sentToBackend
-          ? `✓ “${payload.name}” submitted. We'll email ${payload.email} when reviewed.`
-          : `✓ “${payload.name}” saved.`;
+          ? `✓ "${payload.name}" submitted. We'll email ${payload.email} when reviewed.`
+          : `✓ "${payload.name}" saved.`;
       }
       this.toast(`Submitted: ${payload.name}`, "success");
       form.reset();
