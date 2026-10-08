@@ -1,6 +1,5 @@
 // ============================================================
 // Vibehouse Store — Supabase is the source of truth
-// Falls back to data.js PRODUCTS only if Supabase is unreachable
 // ============================================================
 
 const Store = {
@@ -11,14 +10,33 @@ const Store = {
 
   async init() {
     if (this._ready) return true;
-    this._client = window.VibeBackend?.client?.();
+    try {
+      this._client = (window.VibeBackend && typeof window.VibeBackend.client === "function")
+        ? window.VibeBackend.client()
+        : null;
+    } catch (e) {
+      this._client = null;
+    }
+
     if (!this._client) {
+      console.warn("[Store] no Supabase client, using seed data");
       this.products = [...(window.PRODUCTS || [])];
       this.news = [...(window.NEWS || [])];
       this._ready = true;
       return false;
     }
-    await this.reload();
+
+    try {
+      await Promise.race([
+        this.reload(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("Supabase timeout")), 2500))
+      ]);
+    } catch (e) {
+      console.warn("[Store] init timeout/failure:", e.message);
+      if (!this.products.length) this.products = [...(window.PRODUCTS || [])];
+      if (!this.news.length) this.news = [...(window.NEWS || [])];
+    }
+
     this._ready = true;
     return true;
   },
@@ -31,16 +49,16 @@ const Store = {
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      if (data && data.length) {
-        this.products = data.map(this.normalize);
-      } else {
+      if (Array.isArray(data) && data.length) {
+        this.products = data.map(r => this.normalize(r));
+      } else if (!this.products.length) {
         this.products = [...(window.PRODUCTS || [])];
       }
     } catch (e) {
-      console.warn("[Store] reload failed, using seed:", e.message);
-      this.products = [...(window.PRODUCTS || [])];
+      console.warn("[Store] reload failed:", e.message);
+      if (!this.products.length) this.products = [...(window.PRODUCTS || [])];
     }
-    this.news = [...(window.NEWS || [])];
+    if (!this.news.length) this.news = [...(window.NEWS || [])];
   },
 
   normalize(row) {
@@ -112,7 +130,6 @@ const Store = {
 
     const { error } = await this._client.from("products").update(dbPatch).eq("id", id);
     if (error) return { ok: false, error: error.message };
-
     const p = this.findProduct(id);
     if (p) Object.assign(p, patch);
     return { ok: true };
@@ -171,13 +188,11 @@ const Store = {
 
   async createProduct(payload, userId) {
     if (!this._client) return { ok: false, error: "No backend", offline: true };
-    const slug = payload.name.toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const slug = payload.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const id = `${slug}-${Date.now().toString(36)}`;
 
     const row = {
-      id,
-      slug,
+      id, slug,
       name: payload.name,
       type: payload.cat || "Web App",
       category: payload.cat || "Productivity",
@@ -189,8 +204,7 @@ const Store = {
       owner_id: userId || null,
       owner_role: "Maker",
       owner_bio: "",
-      tags: [],
-      features: [],
+      tags: [], features: [],
       intro: payload.long || payload.desc,
       status: "live",
       launched: new Date().toISOString().slice(0, 10),
@@ -200,22 +214,19 @@ const Store = {
 
     const { error } = await this._client.from("products").insert(row);
     if (error) return { ok: false, error: error.message };
-
     this.products.unshift(this.normalize(row));
     return { ok: true, product: this.normalize(row) };
   },
 
   async getProfile(userId) {
     if (!this._client || !userId) return null;
-    const { data } = await this._client
-      .from("profiles").select("*").eq("id", userId).maybeSingle();
+    const { data } = await this._client.from("profiles").select("*").eq("id", userId).maybeSingle();
     return data || null;
   },
 
   async getProfileByUsername(username) {
     if (!this._client || !username) return null;
-    const { data } = await this._client
-      .from("profiles").select("*").eq("username", username).maybeSingle();
+    const { data } = await this._client.from("profiles").select("*").eq("username", username).maybeSingle();
     return data || null;
   }
 };
