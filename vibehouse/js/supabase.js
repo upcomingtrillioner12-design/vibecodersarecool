@@ -1,15 +1,13 @@
 // ============================================================
 // Vibehouse Backend Layer
 // Supabase when configured · localStorage offline fallback
-// Covers: auth, profiles, avatars, product logos, waitlist,
-//         tasks, submissions, products
 // ============================================================
 
 (function () {
   const cfg = window.VIBEHOUSE_CONFIG || {};
   let supabase = null;
   let ready = false;
-  let initPromise = null; // init() is idempotent: every caller shares one run
+  let initPromise = null;
 
   function loadSdk() {
     return new Promise((resolve, reject) => {
@@ -86,7 +84,6 @@
 
   async function signOut() {
     try { if (ready) await supabase.auth.signOut(); } catch (e) { console.warn("[Vibehouse] signOut failed", e); }
-    // Make sure no stale snapshot can repaint a logged-in page after logout
     try {
       Object.keys(localStorage).forEach(function (k) {
         if (/^sb-.*-auth-token$/.test(k)) localStorage.removeItem(k);
@@ -98,7 +95,6 @@
   async function getSession() {
     if (!ready) return null;
     try {
-      // getSession() waits for the client's own URL/OAuth processing to finish
       const { data } = await supabase.auth.getSession();
       return data.session || null;
     } catch (e) {
@@ -107,7 +103,6 @@
     }
   }
 
-  // After an OAuth redirect: resolve as soon as a session exists (or after timeoutMs).
   async function waitForSession(timeoutMs) {
     if (!ready) return null;
     const first = await getSession();
@@ -156,16 +151,16 @@
       }
     } catch (e) {}
     if (!ready) return { ok: true, offline: true };
-    // .select() lets us tell "0 rows updated" (row missing / blocked by RLS) apart from real success
     let res = await supabase.from("profiles").update(fields).eq("id", userId).select("id");
     if (!res.error && !(res.data && res.data.length)) {
       res = await supabase.from("profiles").upsert(Object.assign({ id: userId }, fields)).select("id");
     }
     if (res.error) return { ok: false, error: res.error.message };
-    if (!(res.data && res.data.length)) return { ok: false, error: "Profile row is missing or not writable (check the profiles table policies)" };
+    if (!(res.data && res.data.length)) return { ok: false, error: "Profile row is missing or not writable (check policies)" };
     return { ok: true };
   }
 
+  // ✅ FIXED: bucket "avatars", path is just the filename
   async function uploadAvatar(userId, fileOrDataUrl) {
     try { localStorage.setItem("vh_user_photo_uid", String(userId)); } catch (e) {}
     if (typeof fileOrDataUrl === "string" && fileOrDataUrl.startsWith("data:")) {
@@ -178,60 +173,66 @@
         const res = await fetch(fileOrDataUrl);
         blob = await res.blob();
       }
-      const path = "avatars/" + userId + ".jpg";
+      const ext = (blob.type.split("/")[1] || "jpg").split("+")[0];
+      const path = userId + "." + ext;
       const { error } = await supabase.storage.from("avatars").upload(path, blob, {
-        upsert: true, contentType: "image/jpeg"
+        upsert: true, contentType: blob.type
       });
       if (error) return { ok: false, error: error.message, url: fileOrDataUrl };
       const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
-      // Same path every time, so add a version to defeat browser/CDN caching of the old image
       const url = pub && pub.publicUrl ? pub.publicUrl + "?v=" + Date.now() : fileOrDataUrl;
       const saved = await updateProfile(userId, { avatar_url: url });
-      if (!saved.ok) return { ok: false, error: "Image uploaded but not saved to your profile: " + saved.error, url: fileOrDataUrl };
+      if (!saved.ok) return { ok: false, error: "Image uploaded but not saved: " + saved.error, url: fileOrDataUrl };
       localStorage.setItem("vh_user_photo", url);
+      localStorage.removeItem("vh_user_photo_uid");
       return { ok: true, url };
     } catch (e) {
       return { ok: false, error: (e && e.message) || "Upload failed", url: fileOrDataUrl };
     }
   }
 
+  // ✅ FIXED: bucket is "product-icons" (not "logos"), path is just the filename
   async function uploadProductLogo(productId, dataUrl) {
     localStorage.setItem("vh_logo_" + productId, dataUrl);
     if (!ready) return { ok: true, url: dataUrl, offline: true };
     try {
       const res = await fetch(dataUrl);
       const blob = await res.blob();
-      const path = "logos/" + productId + ".jpg";
-      const { error } = await supabase.storage.from("logos").upload(path, blob, {
-        upsert: true, contentType: "image/jpeg"
+      const ext = (blob.type.split("/")[1] || "jpg").split("+")[0];
+      const path = productId + "." + ext;
+      const { error } = await supabase.storage.from("product-icons").upload(path, blob, {
+        upsert: true, contentType: blob.type
       });
       if (error) return { ok: false, error: error.message, url: dataUrl };
-      const { data: pub } = supabase.storage.from("logos").getPublicUrl(path);
+      const { data: pub } = supabase.storage.from("product-icons").getPublicUrl(path);
       const url = pub && pub.publicUrl ? pub.publicUrl + "?v=" + Date.now() : dataUrl;
       const up = await supabase.from("products").update({ logo_url: url }).eq("id", productId).select("id");
       if (up.error) return { ok: false, error: up.error.message, url: dataUrl };
-      if (!(up.data && up.data.length)) return { ok: false, error: "This product has no row in the cloud products table, so the icon is only saved on this device", url: dataUrl };
+      if (!(up.data && up.data.length)) return { ok: false, error: "This product has no cloud row yet", url: dataUrl };
+      localStorage.removeItem("vh_logo_" + productId);
       return { ok: true, url };
     } catch (e) {
-      return { ok: true, url: dataUrl, offline: true };
+      return { ok: false, error: (e && e.message) || "Upload failed", url: dataUrl };
     }
   }
 
+  // ✅ FIXED: bucket "avatars", path "owners/<id>.ext"
   async function uploadOwnerAvatar(ownerId, dataUrl) {
     localStorage.setItem("vh_avatar_" + ownerId, dataUrl);
     if (!ready) return { ok: true, url: dataUrl, offline: true };
     try {
       const res = await fetch(dataUrl);
       const blob = await res.blob();
-      const path = "makers/" + ownerId + ".jpg";
+      const ext = (blob.type.split("/")[1] || "jpg").split("+")[0];
+      const path = "owners/" + ownerId + "." + ext;
       const { error } = await supabase.storage.from("avatars").upload(path, blob, {
-        upsert: true, contentType: "image/jpeg"
+        upsert: true, contentType: blob.type
       });
       if (error) return { ok: false, error: error.message, url: dataUrl };
       const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
       return { ok: true, url: (pub && pub.publicUrl) || dataUrl };
     } catch (e) {
-      return { ok: true, url: dataUrl, offline: true };
+      return { ok: false, error: (e && e.message) || "Upload failed", url: dataUrl };
     }
   }
 
@@ -247,7 +248,7 @@
 
   async function fetchProducts() {
     if (!ready) return null;
-    const { data, error } = await supabase.from("products").select("*").order("launched", { ascending: false });
+    const { data, error } = await supabase.from("products").select("*").order("created_at", { ascending: false });
     if (error) return null;
     return data;
   }
