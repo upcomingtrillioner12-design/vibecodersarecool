@@ -1,6 +1,5 @@
 // ============================================================
 // Vibehouse Core Application Logic
-// Backend: Supabase when configured, otherwise localStorage
 // ============================================================
 
 const App = {
@@ -12,15 +11,11 @@ const App = {
   activeFilter: "All",
   backendReady: false,
 
-  // ---------- Small helpers ----------
-
   esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   },
 
-  idOf(u) {
-    return u ? String(u.id || u.email || "") : "";
-  },
+  idOf(u) { return u ? String(u.id || u.email || "") : ""; },
 
   isOAuthReturn() {
     return /[#?&](access_token|refresh_token|code|error)=/.test(location.hash + location.search);
@@ -35,9 +30,7 @@ const App = {
       const k = Object.keys(localStorage).find(x => /^sb-.*-auth-token$/.test(x));
       const s = k && JSON.parse(localStorage.getItem(k));
       const su = s && (s.user || (s.currentSession && s.currentSession.user));
-      if (su && su.email) {
-        return this.buildUser(su, null);
-      }
+      if (su && su.email) return this.buildUser(su, null);
     } catch (e) {}
     return null;
   },
@@ -48,8 +41,7 @@ const App = {
     const name = profile?.full_name || meta.full_name || meta.name || meta.user_name || fallbackName || email.split("@")[0] || "User";
     return {
       id: su.id,
-      name,
-      email,
+      name, email,
       avatar: String(profile?.avatar_letter || name[0] || "?").toUpperCase(),
       tools: profile?.tools_count || 0,
       karma: profile?.karma || 0,
@@ -100,10 +92,15 @@ const App = {
     } catch (e) { console.warn("[Vibehouse] loadCloudData failed", e); }
   },
 
-  // ---------- Start-up ----------
-
   async init() {
     const oauth = this.isOAuthReturn();
+
+    // ✅ Load products from Supabase FIRST (single source of truth)
+    await this.ensureBackend();
+    await Store.init();
+    window.PRODUCTS = Store.products;
+    window.NEWS = Store.news;
+
     this.loadLocalState();
 
     if (this.cloudConfigured() && !oauth && !this.hasStoredSession()) {
@@ -158,9 +155,7 @@ const App = {
       if (window.VibeBackend) {
         await this.ensureBackend();
         if (this.backendReady) {
-          const session = oauth
-            ? await window.VibeBackend.waitForSession(5000)
-            : await window.VibeBackend.getSession();
+          const session = oauth ? await window.VibeBackend.waitForSession(5000) : await window.VibeBackend.getSession();
           if (session?.user) {
             confirmed = true;
             let profile = await window.VibeBackend.getProfile(session.user.id);
@@ -208,7 +203,7 @@ const App = {
     window.scrollTo(0, 0);
   },
 
-  // ✅ FIXED: Now also matches by owner name slug (e.g. "linkankumbhar")
+  // ✅ FIXED: matches by ID, username slug, and name slug
   isProductOwner(p) {
     if (!this.user || !p) return false;
     const uid = String(this.user.id || "").toLowerCase();
@@ -217,7 +212,6 @@ const App = {
     const oid = String(p.ownerId || "").toLowerCase();
     const oname = String(p.owner || "").toLowerCase().trim();
     const onameSlug = oname.replace(/\s+/g, "-");
-    // Match by user id OR username slug against owner id / owner name / owner name slug
     if (oid && (uid === oid || unameSlug === oid)) return true;
     if (oname && (uname === oname || unameSlug === onameSlug)) return true;
     try {
@@ -227,7 +221,6 @@ const App = {
     return false;
   },
 
-  // ---------- Local fallback ----------
   loadLocalState() {
     try {
       const u = localStorage.getItem("vh_user");
@@ -249,14 +242,8 @@ const App = {
       else localStorage.removeItem("vh_user");
     } catch (e) {}
   },
-
-  saveWaitlist() {
-    try { localStorage.setItem("vh_waitlist", JSON.stringify(this.waitlist)); } catch (e) {}
-  },
-
-  saveTasks() {
-    try { localStorage.setItem("vh_tasks", JSON.stringify(this.tasks)); } catch (e) {}
-  },
+  saveWaitlist() { try { localStorage.setItem("vh_waitlist", JSON.stringify(this.waitlist)); } catch (e) {} },
+  saveTasks()    { try { localStorage.setItem("vh_tasks", JSON.stringify(this.tasks)); } catch (e) {} },
 
   parsePath() {
     let path = location.pathname.replace(/\/$/, "") || "/";
@@ -276,16 +263,12 @@ const App = {
   route() {
     const { page, id } = this.parsePath();
     this.currentPage = page;
-
     document.getElementById("sidebar")?.classList.remove("open");
-
     document.querySelectorAll(".nav-item").forEach(el => {
       el.classList.toggle("active", el.dataset.page === this.currentPage);
     });
-
     const content = document.getElementById("content");
     if (!content) return;
-
     switch (this.currentPage) {
       case "home": this.renderHome(content); break;
       case "search": this.renderSearch(content); break;
@@ -303,7 +286,6 @@ const App = {
       case "generate-videos": this.renderGenerateVideos(content); break;
       default: this.renderHome(content);
     }
-
     this.updateUserChip();
   },
 
@@ -311,11 +293,7 @@ const App = {
     window.addEventListener("popstate", () => this.route());
     document.addEventListener("click", (e) => {
       const g = e.target.closest("[data-go]");
-      if (g) {
-        e.preventDefault();
-        this.go(g.dataset.go);
-        return;
-      }
+      if (g) { e.preventDefault(); this.go(g.dataset.go); return; }
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = e.target.closest("a[href]");
       if (!a) return;
@@ -334,23 +312,17 @@ const App = {
       searchInput.addEventListener("keydown", e => {
         if (e.key === "Enter") {
           const q = e.target.value.trim();
-          if (q) {
-            this.searchQuery = q;
-            App.go("/search");
-          }
+          if (q) { this.searchQuery = q; App.go("/search"); }
         }
       });
     }
-
     document.getElementById("btnLogin")?.addEventListener("click", () => this.openAuth("login"));
     document.getElementById("btnSignup")?.addEventListener("click", () => this.openAuth("signup"));
     document.getElementById("btnLogout")?.addEventListener("click", () => this.logout());
-
     const sbBtn = document.getElementById("sidebarToggle");
     const setSb = open => {
       document.body.classList.toggle("sidebar-open", open);
       sbBtn?.setAttribute("aria-expanded", String(open));
-      sbBtn?.setAttribute("aria-label", open ? "Collapse sidebar" : "Expand sidebar");
       if (sbBtn) sbBtn.title = open ? "Collapse sidebar" : "Expand sidebar";
     };
     setSb(false);
@@ -360,18 +332,15 @@ const App = {
     });
     document.addEventListener("keydown", e => { if (e.key === "Escape") setSb(false); });
     document.querySelectorAll(".sidebar .nav-item").forEach(n => n.addEventListener("click", () => setSb(false)));
-
     document.getElementById("menuToggle")?.addEventListener("click", () => {
       document.getElementById("sidebar")?.classList.toggle("open");
     });
-
     document.getElementById("modalOverlay")?.addEventListener("click", e => {
       if (e.target.id === "modalOverlay") this.closeModal();
     });
     document.getElementById("modalClose")?.addEventListener("click", () => this.closeModal());
   },
 
-  // ---------- Auth ----------
   openAuth(mode = "signup") {
     const overlay = document.getElementById("modalOverlay");
     const body = document.getElementById("modalBody");
@@ -395,31 +364,18 @@ const App = {
       </div>
       <div class="auth-divider"><span>or use email</span></div>
       <form id="authForm">
-        ${mode === "signup" ? `
-          <div class="field">
-            <label>Name</label>
-            <input type="text" id="authName" placeholder="Your name" required>
-          </div>` : ""}
-        <div class="field">
-          <label>Email</label>
-          <input type="email" id="authEmail" placeholder="you@example.com" required>
-        </div>
-        <div class="field">
-          <label>Password</label>
-          <input type="password" id="authPass" placeholder="••••••••" required minlength="6">
-        </div>
+        ${mode === "signup" ? `<div class="field"><label>Name</label><input type="text" id="authName" placeholder="Your name" required></div>` : ""}
+        <div class="field"><label>Email</label><input type="email" id="authEmail" placeholder="you@example.com" required></div>
+        <div class="field"><label>Password</label><input type="password" id="authPass" placeholder="••••••••" required minlength="6"></div>
         <button type="submit" class="btn btn-primary" id="authSubmit" style="width:100%;justify-content:center;margin-top:8px">
           ${mode === "signup" ? "Create my account" : "Log in"}
         </button>
       </form>
       <div class="modal-msg" id="authMsg"></div>
     `;
-
     overlay.classList.add("open");
 
-    body.querySelectorAll(".tab").forEach(tab => {
-      tab.addEventListener("click", () => this.openAuth(tab.dataset.mode));
-    });
+    body.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => this.openAuth(tab.dataset.mode)));
 
     body.querySelectorAll(".btn-social").forEach(btn => {
       btn.addEventListener("click", async () => {
@@ -430,7 +386,7 @@ const App = {
         btn.disabled = true;
         if (!window.VibeBackend || !this.cloudConfigured()) return fail("Social login isn't set up on this site yet.");
         await this.ensureBackend();
-        if (!this.backendReady) return fail("Couldn't reach the login server. Check your connection and try again.");
+        if (!this.backendReady) return fail("Couldn't reach the login server.");
         msg.textContent = "Redirecting…";
         const r = await window.VibeBackend.signInWithProvider(btn.dataset.provider);
         if (r.error) fail(r.error);
@@ -450,27 +406,21 @@ const App = {
       if (submitBtn) submitBtn.disabled = true;
 
       await this.ensureBackend();
-      if (this.cloudConfigured() && !this.backendReady) {
-        return fail("Couldn't reach the server. Check your connection and try again.");
-      }
+      if (this.cloudConfigured() && !this.backendReady) return fail("Couldn't reach the server.");
 
       if (this.backendReady && window.VibeBackend) {
         const result = mode === "signup"
           ? await window.VibeBackend.signUp(email, pass, name)
           : await window.VibeBackend.signIn(email, pass);
-
         if (result.error) return fail(result.error);
-
         const user = result.user || result.data?.user;
         if (!user) return fail("Something went wrong. Please try again.");
-
         if (mode === "signup" && !result.data?.session) {
           msg.style.color = "var(--success)";
           msg.textContent = "Account created. Check your email to confirm, then log in.";
           if (submitBtn) submitBtn.disabled = false;
           return;
         }
-
         let profile = await window.VibeBackend.getProfile(user.id);
         profile = await this.ensureProfile(user, profile);
         this.user = this.buildUser(user, profile, name);
@@ -483,13 +433,7 @@ const App = {
         return;
       }
 
-      this.user = {
-        name, email,
-        avatar: String(name[0] || "?").toUpperCase(),
-        tools: 0, karma: 0,
-        joined: new Date().toISOString().slice(0, 10),
-        bio: "Vibe coder."
-      };
+      this.user = { name, email, avatar: String(name[0] || "?").toUpperCase(), tools: 0, karma: 0, joined: new Date().toISOString().slice(0, 10), bio: "Vibe coder." };
       this.saveUser();
       this.closeModal();
       this.toast(`Welcome, ${name}!`, "success");
@@ -499,9 +443,7 @@ const App = {
   },
 
   async logout() {
-    try {
-      if (window.VibeBackend) await window.VibeBackend.signOut();
-    } catch (e) {}
+    try { if (window.VibeBackend) await window.VibeBackend.signOut(); } catch (e) {}
     this.user = null;
     this.waitlist = {};
     this.tasks = [...TASKS_DEFAULT];
@@ -511,9 +453,7 @@ const App = {
     this.route();
   },
 
-  closeModal() {
-    document.getElementById("modalOverlay")?.classList.remove("open");
-  },
+  closeModal() { document.getElementById("modalOverlay")?.classList.remove("open"); },
 
   updateUserChip() {
     document.documentElement.setAttribute("data-auth", this.user ? "user" : "guest");
@@ -596,12 +536,8 @@ const App = {
   userAvatarHtml(user, sizeClass = "user-avatar") {
     if (!user) return "";
     const letter = (user.avatar || user.name || "?")[0].toUpperCase();
-    const photo = (window.IconEngine ? IconEngine.userPhoto(user) : null)
-      || user.photo
-      || localStorage.getItem("vh_user_photo");
-    if (photo) {
-      return `<div class="${sizeClass}"><img src="${this.esc(photo)}" alt="${this.esc(user.name)}"></div>`;
-    }
+    const photo = (window.IconEngine ? IconEngine.userPhoto(user) : null) || user.photo || localStorage.getItem("vh_user_photo");
+    if (photo) return `<div class="${sizeClass}"><img src="${this.esc(photo)}" alt="${this.esc(user.name)}"></div>`;
     const src = window.IconEngine ? IconEngine.avatarSvg(user.name || letter) : null;
     if (src) return `<div class="${sizeClass}"><img src="${this.esc(src)}" alt="${this.esc(user.name)}"></div>`;
     return `<div class="${sizeClass}">${this.esc(letter)}</div>`;
@@ -615,8 +551,8 @@ const App = {
 
   searchProducts(q) {
     const s = String(q || "").trim().toLowerCase();
-    if (!s) return [...PRODUCTS];
-    return PRODUCTS.filter(p =>
+    if (!s) return [...Store.products];
+    return Store.products.filter(p =>
       [p.name, p.desc, p.owner].some(v => String(v || "").toLowerCase().includes(s)) ||
       (p.tags || []).some(t => String(t).toLowerCase().includes(s))
     );
@@ -644,38 +580,21 @@ const App = {
       <div class="home-company">
         <p class="statement">We run the house. <em>Vibe coders fill it</em> with tools, apps and websites, each one a product you can subscribe to.</p>
       <div class="about-strip">
-        <div class="about-item">
-          <div class="about-k">The community</div>
-          <p>vibecodersarecool is the community of vibe coders. People who build with AI, shipping real products.</p>
-        </div>
-        <div class="about-item">
-          <div class="about-k">The products</div>
-          <p>Tools, apps and websites, each one its own product with its own subscription. Not a freelancer marketplace: nobody bids on jobs.</p>
-        </div>
-        <div class="about-item">
-          <div class="about-k">One roof</div>
-          <p>One account, one place to pay, one home for everything vibe coders build. We run the platform so makers can keep building.</p>
-        </div>
+        <div class="about-item"><div class="about-k">The community</div><p>vibecodersarecool is the community of vibe coders.</p></div>
+        <div class="about-item"><div class="about-k">The products</div><p>Tools, apps and websites, each with its own subscription.</p></div>
+        <div class="about-item"><div class="about-k">One roof</div><p>One account, one place to pay, one home.</p></div>
       </div>
 
       <div class="spotlight">
         <div class="spotlight-logo">Dx</div>
-        <div class="spotlight-info">
-          <div class="spotlight-name">Daxeon</div>
-          <div class="spotlight-desc">Scam protection for Discord communities.</div>
-        </div>
+        <div class="spotlight-info"><div class="spotlight-name">Daxeon</div><div class="spotlight-desc">Scam protection for Discord communities.</div></div>
         <span class="spotlight-tag">Content moderation</span>
         <button class="btn btn-primary btn-sm" data-go="/ai/daxeon">View →</button>
       </div>
 
       <div class="action-row">
-        <button class="action-btn images" data-go="/generate-images">
-          <span class="icon">🖼</span> Generate images
-        </button>
-        <button class="action-btn videos" data-go="/generate-videos">
-          <span class="icon">🎬</span> Generate videos
-          <span class="badge">New</span>
-        </button>
+        <button class="action-btn images" data-go="/generate-images"><span class="icon">🖼</span> Generate images</button>
+        <button class="action-btn videos" data-go="/generate-videos"><span class="icon">🎬</span> Generate videos <span class="badge">New</span></button>
       </div>
 
       <div class="stats-row">
@@ -708,36 +627,44 @@ const App = {
   },
 
   getFilteredProducts() {
-    let list = [...PRODUCTS];
+    let list = [...Store.products];
     if (this.activeFilter === "Free") list = list.filter(p => p.priceValue === 0);
     else if (this.activeFilter !== "All") list = list.filter(p => p.type === this.activeFilter);
     return list;
   },
 
+  // ✅ MERGED: compact row layout from vh-list.js, but rendered here
   renderProductCards(container, list) {
     if (!container) return;
-    if (!list.length) {
+    if (!list || !list.length) {
+      container.classList.remove("vh-rows");
       container.innerHTML = `<div class="empty"><h3>No tools match</h3><p>Try a different filter.</p></div>`;
       return;
     }
-    container.innerHTML = list.map(p => `
-      <article class="product-card" data-go="/ai/${this.esc(encodeURIComponent(p.id))}">
-        <div class="product-top">
-          ${this.productLogoHtml(p)}
-          <div class="product-meta">
-            <div class="product-name">${this.esc(p.name)}</div>
-            <div class="product-type">${this.esc(p.type)} · ${this.esc(p.category)}</div>
+    container.classList.add("vh-rows");
+    container.innerHTML = list.map(p => {
+      const free = Number(p.priceValue) === 0;
+      const price = free ? "Free" : (p.price || "");
+      const cat = p.category || p.type || "";
+      return `
+      <article class="vh-row" data-go="/ai/${this.esc(encodeURIComponent(p.id))}">
+        <div class="vr-logo">${this.productLogoHtml(p)}</div>
+        <div class="vr-main">
+          <div class="vr-title">
+            <span class="vr-name">${this.esc(p.name)}</span>
+            ${p.type ? `<span class="vr-chip">${this.esc(p.type)}</span>` : ""}
+            ${p.video ? `<span class="vr-chip demo">▶ Demo</span>` : ""}
           </div>
+          <p class="vr-desc">${this.esc(p.desc)}</p>
         </div>
-        <p class="product-desc">${this.esc(p.desc)}</p>
-        <div class="product-footer">
-          <div class="product-owner-row">
-            ${this.ownerAvatarHtml(p, 32)}
-            <div class="product-owner">by <strong>${this.esc(p.owner)}</strong></div>
-          </div>
+        <div class="vr-cat">${this.esc(cat)}</div>
+        <div class="vr-owner">
+          ${this.ownerAvatarHtml(p, 32)}
+          <span class="vr-owner-name">${this.esc(p.owner)}</span>
         </div>
-      </article>
-    `).join("");
+        <div class="vr-price ${free ? "free" : ""}">${this.esc(price)}</div>
+      </article>`;
+    }).join("");
   },
 
   renderFeed(container) {
@@ -746,10 +673,7 @@ const App = {
       <article class="feed-item">
         <div class="feed-logo">${this.esc(String(n.source || "?")[0])}</div>
         <div class="feed-body">
-          <div class="feed-title">
-            ${this.esc(n.title)}
-            ${n.type === "video" ? `<span class="badge">${this.esc(n.duration || "Video")}</span>` : ""}
-          </div>
+          <div class="feed-title">${this.esc(n.title)}${n.type === "video" ? `<span class="badge">${this.esc(n.duration || "Video")}</span>` : ""}</div>
           <div class="feed-desc">${this.esc(n.source)}</div>
           <div class="feed-meta">
             <span class="feed-tag">${this.esc(n.tag)}</span>
@@ -763,11 +687,10 @@ const App = {
 
   renderSearch(el) {
     const q = this.searchQuery || "";
-
     el.innerHTML = `
       <div class="page-header">
         <h1 class="page-title">Search</h1>
-        <p class="page-sub">${q ? `Results for “${this.esc(q)}”` : "Search tools, makers, and more"}</p>
+        <p class="page-sub">${q ? `Results for "${this.esc(q)}"` : "Search tools, makers, and more"}</p>
       </div>
       <div class="search-box" style="max-width:100%;margin-bottom:24px">
         <svg class="search-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M14 14l-3-3"/></svg>
@@ -775,7 +698,6 @@ const App = {
       </div>
       <div class="products-grid" id="searchResults"></div>
     `;
-
     this.renderProductCards(document.getElementById("searchResults"), this.searchProducts(q));
     const input = document.getElementById("pageSearch");
     input?.focus();
@@ -786,19 +708,16 @@ const App = {
   },
 
   renderProduct(el, id) {
-    const p = PRODUCTS.find(x => x.id === id);
+    // ✅ Read from Store (Supabase), fall back to PRODUCTS
+    const p = Store.findProduct(id) || PRODUCTS.find(x => x.id === id);
     if (!p) {
       el.innerHTML = `<div class="empty"><h3>Product not found</h3><p><a href="/" style="color:var(--accent)">← Back home</a></p></div>`;
       return;
     }
 
     const onWaitlist = !!this.waitlist[p.id];
-
-    // ✅ FIXED: Fallback to owner name slug if ownerId is missing
     const ownerSlug = p.ownerId || String(p.owner || "").toLowerCase().replace(/\s+/g, "-");
     const ownerPath = "/profile/" + encodeURIComponent(ownerSlug);
-
-    // ✅ FIXED: Check ownership before showing "View full profile"
     const isOwner = this.isProductOwner(p);
 
     el.innerHTML = `
@@ -830,7 +749,7 @@ const App = {
           </div>
           <div class="card">
             <h3>Introduction from the maker</h3>
-            <p style="font-size:14px;line-height:1.6;color:var(--text-muted)">“${this.esc(p.intro)}”</p>
+            <p style="font-size:14px;line-height:1.6;color:var(--text-muted)">"${this.esc(p.intro)}"</p>
           </div>
           <div class="card">
             <h3>Tags</h3>
@@ -875,7 +794,6 @@ const App = {
       this.waitlist[p.id] = joining;
       this.saveWaitlist();
       const btn = document.getElementById("btnWaitlist"); if (btn) btn.disabled = true;
-
       if (this.backendReady && this.user?.id && window.VibeBackend) {
         const result = await window.VibeBackend.toggleWaitlist(p.id, this.user.id, joining);
         if (!result?.ok) {
@@ -885,12 +803,11 @@ const App = {
           return;
         }
       }
-
       if (btn) { btn.disabled = false; btn.textContent = joining ? "✓ On waitlist" : "Join waitlist"; }
       this.toast(joining ? `You're on the waitlist for ${p.name}` : "Removed from waitlist", "success");
     });
 
-    // ✅ FIXED: Product icon upload — skip cloud upload entirely to avoid "Bucket not found"
+    // ✅ FIXED: Product icon upload — uses Store, falls back to localStorage
     document.getElementById("btnChangeLogo")?.addEventListener("click", () => {
       document.getElementById("productLogoInput")?.click();
     });
@@ -906,17 +823,29 @@ const App = {
               r.onerror = rej;
               r.readAsDataURL(file);
             });
-        localStorage.setItem("vh_logo_" + p.id, dataUrl);
+
+        // 1. Optimistic local update (instant)
         p.logoUrl = dataUrl;
         p._resolvedLogo = dataUrl;
-
-        // Cloud upload disabled to avoid "Bucket not found" errors.
-        // If you create the Supabase bucket later, uncomment the next line:
-        // let logoRes = window.VibeBackend ? await window.VibeBackend.uploadProductLogo(p.id, dataUrl) : null;
-
+        localStorage.setItem("vh_logo_" + p.id, dataUrl);
         const logoEl = document.querySelector(".detail-logo");
         if (logoEl) logoEl.outerHTML = this.productLogoHtml(p, "detail-logo");
-        this.toast("Product icon updated", "success");
+
+        // 2. Upload to Supabase — persists across refresh & devices
+        if (window.Store && Store._client) {
+          const res = await Store.uploadProductIcon(p.id, dataUrl);
+          if (res.ok && res.url) {
+            p.logoUrl = res.url;
+            p._resolvedLogo = res.url;
+            localStorage.removeItem("vh_logo_" + p.id);
+            if (logoEl) logoEl.outerHTML = this.productLogoHtml(p, "detail-logo");
+            this.toast("Product icon saved", "success");
+          } else {
+            this.toast("Saved locally only: " + (res.error || "cloud failed"), "error");
+          }
+        } else {
+          this.toast("Product icon saved locally", "success");
+        }
       } catch (err) {
         this.toast("Could not process image", "error");
       }
@@ -947,7 +876,7 @@ const App = {
     overlay.classList.add("open");
   },
 
-  // ✅ FIXED: Profile matching now handles both UUID and username slug
+  // ✅ FIXED: Profile matching by ID OR name slug, uses Store
   renderProfile(el, id) {
     const isMe = id === "me";
 
@@ -964,15 +893,8 @@ const App = {
       return;
     }
 
-    // ✅ FIXED: Match products by ownerId OR owner name/slug (case-insensitive)
     const decodedId = decodeURIComponent(id || "");
-    const target = String(decodedId).toLowerCase();
-    const makerProducts = isMe ? [] : PRODUCTS.filter(p => {
-      const pid = String(p.ownerId || "").toLowerCase();
-      const pname = String(p.owner || "").toLowerCase();
-      const pnameSlug = pname.replace(/\s+/g, "-");
-      return pid === target || pname === target || pnameSlug === target;
-    });
+    const makerProducts = isMe ? [] : Store.productsByOwner(decodedId);
     const maker = makerProducts[0];
     if (!maker && !isMe) {
       el.innerHTML = `<div class="empty"><h3>Profile not found</h3><a href="/" style="color:var(--accent)">← Home</a></div>`;
@@ -984,16 +906,18 @@ const App = {
     const bio = isMe ? this.user.bio : (maker?.ownerBio || "");
     const role = isMe ? (this.user.headline || "Vibe Coder") : (maker?.ownerRole || "Vibe Coder");
     const photo = isMe ? (window.IconEngine ? IconEngine.userPhoto(this.user) : this.user.photo) : null;
+    const username = isMe ? (this.user.username || "") : (maker?.ownerUsername || "");
 
     el.innerHTML = `
       <button class="btn btn-ghost btn-sm" onclick="history.back()" style="margin-bottom:20px">← Back</button>
       <div class="profile-header">
-        <div class="profile-avatar" id="profileAvatarBox" style="background:linear-gradient(135deg,var(--accent),#a29bfe)">
+        <div class="profile-avatar" id="profileAvatarBox" style="background:linear-gradient(135deg,var(--accent),#a29bfe);${isMe ? "cursor:pointer" : ""}">
           ${photo ? `<img src="${this.esc(photo)}" alt="${this.esc(name)}" id="profilePhotoImg">` : this.esc(avatar)}
           ${isMe ? `<div class="upload-hint">Change photo</div><input type="file" id="profilePhotoInput" accept="image/*">` : ""}
         </div>
         <div>
           <h1 class="page-title" style="margin-bottom:4px">${this.esc(name)}</h1>
+          ${username ? `<p style="color:var(--text-muted);margin-bottom:6px">@${this.esc(username)}</p>` : ""}
           <p style="color:var(--text-muted);margin-bottom:8px">${this.esc(role)}</p>
           <p style="font-size:14px;max-width:480px">${this.esc(bio)}</p>
           <div class="profile-stats">
@@ -1004,7 +928,7 @@ const App = {
         </div>
       </div>
       <h2 style="font-size:18px;font-weight:700;margin-bottom:16px">Tools by ${this.esc(name)}</h2>
-      <div class="products-grid" id="profileProducts"></div>
+      <div class="products-list" id="profileProducts"></div>
     `;
     this.renderProductCards(document.getElementById("profileProducts"), makerProducts);
 
@@ -1027,23 +951,11 @@ const App = {
                 r.onerror = rej;
                 r.readAsDataURL(file);
               });
+
+          // Instant local update
           localStorage.setItem("vh_user_photo", dataUrl);
           if (this.user?.id) localStorage.setItem("vh_user_photo_uid", String(this.user.id));
-          if (this.user) {
-            this.user.photo = dataUrl;
-            this.saveUser();
-          }
-
-          // ✅ FIXED: Cloud avatar upload disabled to avoid "Bucket not found".
-          // If you create the Supabase bucket later, uncomment the next 6 lines:
-          // if (window.VibeBackend && this.user?.id) {
-          //   const avatarRes = await window.VibeBackend.uploadAvatar(this.user.id, dataUrl);
-          //   if (avatarRes && avatarRes.ok && avatarRes.url && !avatarRes.offline) {
-          //     this.user.photo = avatarRes.url;
-          //     this.saveUser();
-          //   }
-          // }
-
+          if (this.user) { this.user.photo = dataUrl; this.saveUser(); }
           const img = document.getElementById("profilePhotoImg");
           if (img) img.src = dataUrl;
           else if (box) {
@@ -1053,7 +965,25 @@ const App = {
             box.onclick = () => inp2?.click();
           }
           this.updateUserChip();
-          this.toast("Profile photo updated", "success");
+
+          // Upload to Supabase
+          if (window.Store && Store._client && this.user?.id) {
+            const res = await Store.uploadAvatar(this.user.id, dataUrl);
+            if (res.ok && res.url) {
+              this.user.photo = res.url;
+              this.saveUser();
+              localStorage.removeItem("vh_user_photo");
+              localStorage.removeItem("vh_user_photo_uid");
+              const img2 = document.getElementById("profilePhotoImg");
+              if (img2) img2.src = res.url;
+              this.updateUserChip();
+              this.toast("Profile photo saved", "success");
+            } else {
+              this.toast("Saved locally only: " + (res.error || "cloud failed"), "error");
+            }
+          } else {
+            this.toast("Profile photo saved locally", "success");
+          }
         } catch (err) {
           this.toast("Could not process image", "error");
         }
@@ -1073,7 +1003,6 @@ const App = {
       </div>
       <div class="task-list" id="taskList"></div>
     `;
-
     const renderList = () => {
       const list = document.getElementById("taskList");
       if (!list) return;
@@ -1091,7 +1020,6 @@ const App = {
           <button class="btn btn-ghost btn-sm task-del">Delete</button>
         </div>
       `).join("");
-
       list.querySelectorAll(".task-check").forEach(btn => {
         btn.addEventListener("click", async () => {
           const id = btn.closest(".task-item").dataset.id;
@@ -1119,20 +1047,12 @@ const App = {
         });
       });
     };
-
     renderList();
-
     const addTask = async () => {
       const input = document.getElementById("newTaskInput");
       const title = input.value.trim();
       if (!title) return;
-      const task = {
-        id: "t" + Date.now(),
-        title,
-        done: false,
-        due: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-        created_at: new Date().toISOString()
-      };
+      const task = { id: "t" + Date.now(), title, done: false, due: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10), created_at: new Date().toISOString() };
       this.tasks.unshift(task);
       this.saveTasks();
       input.value = "";
@@ -1147,7 +1067,7 @@ const App = {
   },
 
   renderDeals(el) {
-    const deals = PRODUCTS.filter(p => p.priceValue === 0 || !p.priceValue);
+    const deals = Store.products.filter(p => p.priceValue === 0 || !p.priceValue);
     el.innerHTML = `
       <div class="page-header">
         <h1 class="page-title">Deals</h1>
@@ -1159,7 +1079,7 @@ const App = {
   },
 
   renderLeaderboard(el) {
-    const ranked = [...PRODUCTS].sort((a, b) => (b.users || 0) - (a.users || 0));
+    const ranked = [...Store.products].sort((a, b) => (b.users || 0) - (a.users || 0));
     el.innerHTML = `
       <div class="page-header">
         <h1 class="page-title">Leaderboard</h1>
@@ -1219,7 +1139,7 @@ const App = {
         if (key === "regex") { const re = new RegExp(document.getElementById("mtRegex").value); const text = document.getElementById("mtText").value; const m = text.match(re); out.textContent = m ? `Match found: ${m[0]}` : "No match"; }
         if (key === "meta") { const title = document.getElementById("mtTitle").value || "Untitled"; const desc = document.getElementById("mtDesc").value || "No description"; const url = document.getElementById("mtUrl").value || "https://example.com"; out.innerHTML = `<div class="card"><strong>${this.esc(title)}</strong><p style="color:var(--text-muted);margin:6px 0">${this.esc(desc)}</p><small>${this.esc(url)}</small></div>`; }
         if (key === "slug") { out.textContent = document.getElementById("mtSlug").value.toLowerCase().normalize("NFKD").replace(/[^\w\s-]/g, "").trim().replace(/[\s_-]+/g, "-").replace(/^-+|-+$/g, ""); }
-        if (key === "lorem") { const p = "Vibehouse helps builders turn ideas into useful products with less friction. Build, test, launch and keep moving."; out.textContent = Array.from({ length: Number(document.getElementById("mtCount").value) }, () => p).join("\n\n"); }
+        if (key === "lorem") { const p = "Vibehouse helps builders turn ideas into useful products with less friction."; out.textContent = Array.from({ length: Number(document.getElementById("mtCount").value) }, () => p).join("\n\n"); }
       } catch (e) { out.textContent = "Invalid input: " + e.message; out.style.color = "var(--danger)"; }
     });
     box.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1256,15 +1176,15 @@ const App = {
 
   characterFallback(key, text) {
     const t = text.toLowerCase();
-    if (key === "reviewer") return t.includes("bug") || t.includes("error") ? "Paste the smallest failing snippet, the expected behavior, and the actual error. I'll help isolate the failure path." : "Share the code or architecture you want reviewed, plus what matters most: correctness, performance, security, or readability.";
-    if (key === "copy") return "Give me the audience, product, and the one action you want the reader to take. I'll turn that into concise copy.";
-    if (key === "researcher") return "Start with the exact question, your deadline, and the sources you trust. I'll break it into searchable claims and a verification checklist.";
+    if (key === "reviewer") return t.includes("bug") || t.includes("error") ? "Paste the smallest failing snippet, the expected behavior, and the actual error." : "Share the code or architecture you want reviewed.";
+    if (key === "copy") return "Give me the audience, product, and the one action you want the reader to take.";
+    if (key === "researcher") return "Start with the exact question, your deadline, and the sources you trust.";
     return "Pick the smallest shippable version first. Tell me the goal, the user, and what is blocking you right now.";
   },
 
   renderMap(el) {
     const regions = [{ name: "India", makers: 4, lat: 20.59, lon: 78.96 }, { name: "USA", makers: 3, lat: 39.8, lon: -98.6 }, { name: "Saudi Arabia", makers: 1, lat: 23.9, lon: 45.1 }, { name: "Morocco", makers: 1, lat: 31.8, lon: -7.1 }, { name: "Poland", makers: 1, lat: 51.9, lon: 19.1 }];
-    el.innerHTML = `<div class="page-header"><h1 class="page-title">Map</h1><p class="page-sub">Explore maker regions. Select a region to open it in your map app.</p></div><div class="card"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${regions.map(r => `<button class="btn btn-ghost map-region" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${r.name}"><strong>${r.name}</strong><span style="display:block;color:var(--text-muted)">${r.makers} makers</span></button>`).join("")}</div><p id="mapStatus" class="vh-note" style="margin-top:14px">Choose a region to open its location.</p></div>`;
+    el.innerHTML = `<div class="page-header"><h1 class="page-title">Map</h1><p class="page-sub">Explore maker regions.</p></div><div class="card"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">${regions.map(r => `<button class="btn btn-ghost map-region" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${r.name}"><strong>${r.name}</strong><span style="display:block;color:var(--text-muted)">${r.makers} makers</span></button>`).join("")}</div><p id="mapStatus" class="vh-note" style="margin-top:14px">Choose a region to open its location.</p></div>`;
     el.querySelectorAll(".map-region").forEach(b => b.addEventListener("click", () => { const lat = b.dataset.lat, lon = b.dataset.lon, name = b.dataset.name; document.getElementById("mapStatus").textContent = `Opening ${name} in maps…`; window.open(`https://www.google.com/maps/search/?api=1&query=${lat},${lon}`, "_blank", "noopener,noreferrer"); }));
   },
 
@@ -1296,104 +1216,46 @@ const App = {
     el.querySelectorAll(".copy-prompt").forEach(b => b.addEventListener("click", async () => { const text = decodeURIComponent(b.dataset.prompt); try { await navigator.clipboard.writeText(text); this.toast("Copied to clipboard", "success"); } catch (e) { this.toast("Clipboard access was blocked", "error"); } }));
   },
 
+  // ✅ FIXED: Launch writes to Supabase via Store
   renderLaunch(el) {
     el.innerHTML = `
       <div class="page-header">
         <h1 class="page-title">Launch your product</h1>
         <p class="page-sub">Get in front of builders and operators. Review typically takes 24–48 hours.</p>
       </div>
-
       <div style="display:grid;grid-template-columns:1fr 320px;gap:28px;align-items:start">
         <div class="card">
           <h3 style="margin-bottom:20px">Submit your tool</h3>
-
           <form id="launchForm">
-            <div class="field">
-              <label>Product name *</label>
-              <input type="text" id="launchName" required placeholder="e.g. Invoice Nest" maxlength="80">
-            </div>
-            <div class="field">
-              <label>One-line description *</label>
-              <input type="text" id="launchDesc" required placeholder="What it does in one clear sentence" maxlength="160">
-            </div>
-            <div class="field">
-              <label>Long description</label>
-              <textarea id="launchLong" rows="4" placeholder="Tell makers why this exists, who it's for, and what makes it different."></textarea>
-            </div>
+            <div class="field"><label>Product name *</label><input type="text" id="launchName" required placeholder="e.g. Invoice Nest" maxlength="80"></div>
+            <div class="field"><label>One-line description *</label><input type="text" id="launchDesc" required placeholder="What it does in one clear sentence" maxlength="160"></div>
+            <div class="field"><label>Long description</label><textarea id="launchLong" rows="4" placeholder="Tell makers why this exists..."></textarea></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-              <div class="field">
-                <label>Category *</label>
+              <div class="field"><label>Category *</label>
                 <select id="launchCat" required>
                   <option value="">Select...</option>
-                  <option>SaaS tool</option>
-                  <option>Mobile app</option>
-                  <option>Web app</option>
-                  <option>Website</option>
-                  <option>Chrome extension</option>
-                  <option>API</option>
-                  <option>Other</option>
+                  <option>SaaS tool</option><option>Mobile app</option><option>Web app</option>
+                  <option>Website</option><option>Chrome extension</option><option>API</option><option>Other</option>
                 </select>
               </div>
-              <div class="field" style="display:none">
-                <label>Pricing</label>
-                <select id="launchPrice"><option>Free</option></select>
-              </div>
+              <div class="field" style="display:none"><label>Pricing</label><select id="launchPrice"><option>Free</option></select></div>
             </div>
-            <div class="field">
-              <label>Website / Demo URL *</label>
-              <input type="url" id="launchUrl" required placeholder="https://yoursite.com">
-            </div>
-            <div class="field">
-              <label>Logo URL (optional)</label>
-              <input type="url" id="launchLogo" placeholder="https://.../logo.png">
-            </div>
-            <div class="field">
-              <label>Your name *</label>
-              <input type="text" id="launchMaker" required placeholder="How you want to be credited">
-            </div>
-            <div class="field">
-              <label>Email *</label>
-              <input type="email" id="launchEmail" required placeholder="you@example.com">
-            </div>
-            <div class="field">
-              <label>Twitter / X handle (optional)</label>
-              <input type="text" id="launchTwitter" placeholder="@yourhandle">
-            </div>
-            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" id="launchSubmitBtn">
-              Submit for review
-            </button>
+            <div class="field"><label>Website / Demo URL *</label><input type="url" id="launchUrl" required placeholder="https://yoursite.com"></div>
+            <div class="field"><label>Logo URL (optional)</label><input type="url" id="launchLogo" placeholder="https://.../logo.png"></div>
+            <div class="field"><label>Your name *</label><input type="text" id="launchMaker" required placeholder="How you want to be credited"></div>
+            <div class="field"><label>Email *</label><input type="email" id="launchEmail" required placeholder="you@example.com"></div>
+            <div class="field"><label>Twitter / X handle (optional)</label><input type="text" id="launchTwitter" placeholder="@yourhandle"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px" id="launchSubmitBtn">Submit for review</button>
           </form>
           <div id="launchMsg" class="modal-msg" style="margin-top:14px"></div>
         </div>
-
         <div>
-          <div class="card">
-            <h3>What happens next</h3>
-            <ol style="font-size:13px;color:var(--text-muted);line-height:1.7;padding-left:18px">
-              <li>We review your submission (24–48h)</li>
-              <li>You'll get an email when it's approved</li>
-              <li>Your tool appears on Home + Search</li>
-              <li>Makers can join the waitlist / try it</li>
-            </ol>
-          </div>
-          <div class="card">
-            <h3>Tips for approval</h3>
-            <ul style="font-size:13px;color:var(--text-muted);line-height:1.7;padding-left:18px">
-              <li>Live demo or clear screenshots</li>
-              <li>Honest one-liner (no hype)</li>
-              <li>Working signup / contact path</li>
-              <li>Built by a real person (not pure agency spam)</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h3>Advertise</h3>
-            <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Want a spotlight slot or homepage feature?</p>
-            <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" onclick="App.toast('Email launch@vibehouse.com for ad rates','success')">Contact for ads</button>
-          </div>
+          <div class="card"><h3>What happens next</h3><ol style="font-size:13px;color:var(--text-muted);line-height:1.7;padding-left:18px"><li>We review your submission (24–48h)</li><li>You'll get an email when it's approved</li><li>Your tool appears on Home + Search</li><li>Makers can join the waitlist / try it</li></ol></div>
+          <div class="card"><h3>Tips for approval</h3><ul style="font-size:13px;color:var(--text-muted);line-height:1.7;padding-left:18px"><li>Live demo or clear screenshots</li><li>Honest one-liner (no hype)</li><li>Working signup / contact path</li><li>Built by a real person (not pure agency spam)</li></ul></div>
+          <div class="card"><h3>Advertise</h3><p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Want a spotlight slot or homepage feature?</p><button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" onclick="App.toast('Email launch@vibehouse.com for ad rates','success')">Contact for ads</button></div>
         </div>
       </div>
     `;
-
     const style = document.createElement("style");
     style.textContent = `@media(max-width:800px){ #content > div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; } }`;
     el.appendChild(style);
@@ -1423,22 +1285,28 @@ const App = {
       };
 
       let sentToBackend = false;
+      let backendError = "";
 
-      if (window.VibeBackend) {
-        await this.ensureBackend();
-        const result = await window.VibeBackend.submitProduct(payload);
+      if (window.Store && Store._client) {
+        const result = await Store.createProduct(payload, this.user?.id || null);
         if (result.ok) {
-          sentToBackend = !result.offline;
-        } else if (result.error) {
-          msg.textContent = "Backend error: " + result.error + " — saved locally instead.";
+          sentToBackend = true;
+          window.PRODUCTS = Store.products;
+        } else {
+          backendError = result.error || "Failed";
+        }
+      }
+
+      if (!sentToBackend) {
+        try {
+          const subs = JSON.parse(localStorage.getItem("vh_submissions") || "[]");
+          subs.push(payload);
+          localStorage.setItem("vh_submissions", JSON.stringify(subs));
+        } catch (err) {}
+        if (backendError) {
+          msg.textContent = "Backend error: " + backendError + " — saved locally.";
           msg.style.color = "var(--danger)";
         }
-      } else {
-        try {
-          const submissions = JSON.parse(localStorage.getItem("vh_submissions") || "[]");
-          submissions.push(payload);
-          localStorage.setItem("vh_submissions", JSON.stringify(submissions));
-        } catch (err) {}
       }
 
       if (this.user) {
@@ -1467,8 +1335,8 @@ const App = {
 
   renderGenerateImages(el) {
     el.innerHTML = `
-      <div class="page-header"><h1 class="page-title">Generate Images</h1><p class="page-sub">Create a local visual instantly, or connect your own server-side image model endpoint.</p></div>
-      <div class="card" style="max-width:720px"><div class="field"><label>Prompt</label><textarea id="imgPrompt" rows="3" placeholder="A cozy cafe interior at golden hour, soft lighting, cinematic..."></textarea></div>
+      <div class="page-header"><h1 class="page-title">Generate Images</h1><p class="page-sub">Create a local visual instantly.</p></div>
+      <div class="card" style="max-width:720px"><div class="field"><label>Prompt</label><textarea id="imgPrompt" rows="3" placeholder="A cozy cafe interior..."></textarea></div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"><div class="field" style="flex:1;min-width:160px;margin:0"><label>Style</label><select id="imgStyle"><option>Photorealistic</option><option>Illustration</option><option>3D Render</option><option>Watercolor</option></select></div><div class="field" style="flex:1;min-width:160px;margin:0"><label>Aspect</label><select id="imgAspect"><option>1:1</option><option>16:9</option><option>9:16</option><option>4:3</option></select></div></div>
       <button class="btn btn-primary" id="genImgBtn" style="width:100%;justify-content:center">Generate image</button><div id="imgResult" style="margin-top:20px;display:none"></div></div>`;
     document.getElementById("genImgBtn")?.addEventListener("click", async () => {
@@ -1487,16 +1355,16 @@ const App = {
           const text = prompt.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); const style = document.getElementById("imgStyle").value;
           const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#111827"/><stop offset=".55" stop-color="#4f46e5"/><stop offset="1" stop-color="#111827"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/><circle cx="${w * .72}" cy="${h * .28}" r="${Math.min(w, h) * .14}" fill="#fff" opacity=".12"/><text x="${w * .08}" y="${h * .72}" fill="#fff" font-family="Inter,Arial" font-size="${Math.max(22, w / 28)}" font-weight="700">${text.slice(0, 90)}</text><text x="${w * .08}" y="${h * .78}" fill="#fff" opacity=".65" font-family="Inter,Arial" font-size="${Math.max(14, w / 45)}">${style} · local preview</text></svg>`;
           const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-          result.innerHTML = `<div class="card"><img src="${url}" alt="Generated local preview" style="width:100%;border-radius:12px"><div style="display:flex;gap:8px;margin-top:12px"><a class="btn btn-primary" href="${url}" download="vibehouse-image.svg">Download SVG</a></div><p class="vh-note" style="margin-top:8px">Local generator mode. Add IMAGE_API_URL in js/config.js for a real model backend.</p></div>`;
+          result.innerHTML = `<div class="card"><img src="${url}" alt="Generated local preview" style="width:100%;border-radius:12px"><div style="display:flex;gap:8px;margin-top:12px"><a class="btn btn-primary" href="${url}" download="vibehouse-image.svg">Download SVG</a></div><p class="vh-note" style="margin-top:8px">Local generator mode.</p></div>`;
         }
         this.toast("Image ready", "success");
-      } catch (e) { result.innerHTML = `<div class="card"><p style="color:var(--danger)">${this.esc(e.message)}</p><p class="vh-note">Check your server endpoint and try again.</p></div>`; this.toast("Image generation failed", "error"); }
+      } catch (e) { result.innerHTML = `<div class="card"><p style="color:var(--danger)">${this.esc(e.message)}</p></div>`; this.toast("Image generation failed", "error"); }
       finally { btn.disabled = false; btn.textContent = "Generate image"; result.style.display = "block"; }
     });
   },
 
   renderGenerateVideos(el) {
-    el.innerHTML = `<div class="page-header"><h1 class="page-title">Generate Videos</h1><p class="page-sub">Create a short browser-generated motion preview, or connect a server-side video model.</p></div><div class="card" style="max-width:720px"><div class="field"><label>Prompt</label><textarea id="vidPrompt" rows="3" placeholder="A time-lapse of a city skyline at dusk..."></textarea></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"><div class="field" style="flex:1;min-width:160px;margin:0"><label>Duration</label><select id="vidDur"><option value="4">4s</option><option value="8">8s</option><option value="12">12s</option></select></div><div class="field" style="flex:1;min-width:160px;margin:0"><label>Resolution</label><select id="vidRes"><option>720p</option><option>1080p</option></select></div></div><button class="btn btn-primary" id="genVidBtn" style="width:100%;justify-content:center">Generate video</button><div id="vidResult" style="margin-top:20px;display:none"></div></div>`;
+    el.innerHTML = `<div class="page-header"><h1 class="page-title">Generate Videos</h1><p class="page-sub">Create a short browser-generated motion preview.</p></div><div class="card" style="max-width:720px"><div class="field"><label>Prompt</label><textarea id="vidPrompt" rows="3" placeholder="A time-lapse of a city skyline..."></textarea></div><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"><div class="field" style="flex:1;min-width:160px;margin:0"><label>Duration</label><select id="vidDur"><option value="4">4s</option><option value="8">8s</option><option value="12">12s</option></select></div><div class="field" style="flex:1;min-width:160px;margin:0"><label>Resolution</label><select id="vidRes"><option>720p</option><option>1080p</option></select></div></div><button class="btn btn-primary" id="genVidBtn" style="width:100%;justify-content:center">Generate video</button><div id="vidResult" style="margin-top:20px;display:none"></div></div>`;
     document.getElementById("genVidBtn")?.addEventListener("click", async () => {
       const prompt = document.getElementById("vidPrompt").value.trim(); if (!prompt) return this.toast("Enter a prompt first", "error");
       const btn = document.getElementById("genVidBtn"), result = document.getElementById("vidResult"); btn.disabled = true; btn.textContent = "Generating…"; result.style.display = "block";
@@ -1508,7 +1376,7 @@ const App = {
           const d = await r.json(); const url = d.url || d.video_url; if (!url) throw new Error("Video API returned no video URL");
           result.innerHTML = `<video src="${this.esc(url)}" controls style="width:100%;border-radius:12px;background:#000"></video>`;
         } else {
-          if (typeof MediaRecorder === "undefined" || !HTMLCanvasElement.prototype.captureStream) throw new Error("This browser can't record video previews. Add VIDEO_API_URL in js/config.js instead.");
+          if (typeof MediaRecorder === "undefined" || !HTMLCanvasElement.prototype.captureStream) throw new Error("This browser can't record video previews.");
           const seconds = Number(document.getElementById("vidDur").value), canvas = document.createElement("canvas"), ctx = canvas.getContext("2d"); canvas.width = 640; canvas.height = 360;
           const stream = canvas.captureStream(24);
           const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
@@ -1524,14 +1392,13 @@ const App = {
           };
           requestAnimationFrame(draw);
           const blob = await done; const url = URL.createObjectURL(blob);
-          result.innerHTML = `<video src="${url}" controls autoplay loop style="width:100%;border-radius:12px;background:#000"></video><a class="btn btn-primary" style="margin-top:10px" href="${url}" download="vibehouse-video.webm">Download video</a><p class="vh-note" style="margin-top:8px">Local motion mode. Add VIDEO_API_URL in js/config.js for a real video model backend.</p>`;
+          result.innerHTML = `<video src="${url}" controls autoplay loop style="width:100%;border-radius:12px;background:#000"></video><a class="btn btn-primary" style="margin-top:10px" href="${url}" download="vibehouse-video.webm">Download video</a><p class="vh-note" style="margin-top:8px">Local motion mode.</p>`;
         }
         this.toast("Video ready", "success");
       } catch (e) { result.innerHTML = `<div class="card"><p style="color:var(--danger)">${this.esc(e.message)}</p></div>`; this.toast("Video generation failed", "error"); }
       finally { btn.disabled = false; btn.textContent = "Generate video"; }
     });
   }
-
 };
 
 document.addEventListener("DOMContentLoaded", () => App.init());
