@@ -92,16 +92,29 @@ const App = {
     } catch (e) { console.warn("[Vibehouse] loadCloudData failed", e); }
   },
 
+  // ✅ FIXED: never hangs the page on Supabase. Releases boot mask FIRST.
   async init() {
     const oauth = this.isOAuthReturn();
-
-    // ✅ Load products from Supabase FIRST (single source of truth)
-    await this.ensureBackend();
-    await Store.init();
-    window.PRODUCTS = Store.products;
-    window.NEWS = Store.news;
-
     this.loadLocalState();
+
+    // ⚡ Release the boot mask immediately so the page never stays blank
+    document.documentElement.classList.remove("booting");
+
+    // ⚡ Store init with hard timeout so a slow Supabase never blocks paint
+    try {
+      await Promise.race([
+        this.ensureBackend().then(() => Store.init()),
+        new Promise(res => setTimeout(res, 3000))
+      ]);
+    } catch (e) {
+      console.warn("[Vibehouse] Store init timed out, using seed data");
+    }
+
+    // Only replace PRODUCTS if Store returned real data
+    if (window.Store && Array.isArray(Store.products) && Store.products.length) {
+      window.PRODUCTS = Store.products;
+      if (Store.news && Store.news.length) window.NEWS = Store.news;
+    }
 
     if (this.cloudConfigured() && !oauth && !this.hasStoredSession()) {
       this.user = null;
@@ -114,6 +127,10 @@ const App = {
     this.bindGlobal();
     this.bindNavigation();
 
+    // Paint immediately with whatever data we have
+    this.route();
+
+    // Background auth reconciliation — never blocks paint
     this.ensureBackend().then(ok => {
       if (ok && window.VibeBackend.onAuthChange) {
         window.VibeBackend.onAuthChange(event => {
@@ -127,22 +144,17 @@ const App = {
       }
     });
 
-    const mustWait = oauth || (this.cloudConfigured() && this.hasStoredSession() && !this.user);
-
+    const mustWait = oauth || (this.cloudConfigured() && this.hasStoredSession());
     if (mustWait) {
-      try {
-        await Promise.race([
-          this.reconcile({ silent: true, oauth }),
-          new Promise(r => setTimeout(r, 6000))
-        ]);
-      } catch (e) {}
-      this.route();
-      document.documentElement.classList.remove("booting");
-      this.pullData(this.idOf(this.user));
+      Promise.race([
+        this.reconcile({ silent: true, oauth }),
+        new Promise(r => setTimeout(r, 4000))
+      ]).then(() => {
+        this.route();
+        this.pullData(this.idOf(this.user));
+      }).catch(() => {});
     } else {
-      this.route();
-      document.documentElement.classList.remove("booting");
-      this.reconcile({ oauth: false });
+      this.reconcile({ oauth: false }).catch(() => {});
     }
   },
 
@@ -551,8 +563,9 @@ const App = {
 
   searchProducts(q) {
     const s = String(q || "").trim().toLowerCase();
-    if (!s) return [...Store.products];
-    return Store.products.filter(p =>
+    const source = (window.Store && Store.products) || PRODUCTS;
+    if (!s) return [...source];
+    return source.filter(p =>
       [p.name, p.desc, p.owner].some(v => String(v || "").toLowerCase().includes(s)) ||
       (p.tags || []).some(t => String(t).toLowerCase().includes(s))
     );
@@ -627,13 +640,14 @@ const App = {
   },
 
   getFilteredProducts() {
-    let list = [...Store.products];
+    const source = (window.Store && Store.products) || PRODUCTS;
+    let list = [...source];
     if (this.activeFilter === "Free") list = list.filter(p => p.priceValue === 0);
     else if (this.activeFilter !== "All") list = list.filter(p => p.type === this.activeFilter);
     return list;
   },
 
-  // ✅ MERGED: compact row layout from vh-list.js, but rendered here
+  // ✅ Compact row layout (merged from vh-list.js)
   renderProductCards(container, list) {
     if (!container) return;
     if (!list || !list.length) {
@@ -709,7 +723,7 @@ const App = {
 
   renderProduct(el, id) {
     // ✅ Read from Store (Supabase), fall back to PRODUCTS
-    const p = Store.findProduct(id) || PRODUCTS.find(x => x.id === id);
+    const p = (window.Store && Store.findProduct(id)) || PRODUCTS.find(x => x.id === id);
     if (!p) {
       el.innerHTML = `<div class="empty"><h3>Product not found</h3><p><a href="/" style="color:var(--accent)">← Back home</a></p></div>`;
       return;
@@ -807,7 +821,7 @@ const App = {
       this.toast(joining ? `You're on the waitlist for ${p.name}` : "Removed from waitlist", "success");
     });
 
-    // ✅ FIXED: Product icon upload — uses Store, falls back to localStorage
+    // ✅ FIXED: Product icon upload — Store first, VibeBackend fallback
     document.getElementById("btnChangeLogo")?.addEventListener("click", () => {
       document.getElementById("productLogoInput")?.click();
     });
@@ -824,29 +838,36 @@ const App = {
               r.readAsDataURL(file);
             });
 
-        // 1. Optimistic local update (instant)
+        // 1. Optimistic local update
         p.logoUrl = dataUrl;
         p._resolvedLogo = dataUrl;
         localStorage.setItem("vh_logo_" + p.id, dataUrl);
         const logoEl = document.querySelector(".detail-logo");
         if (logoEl) logoEl.outerHTML = this.productLogoHtml(p, "detail-logo");
 
-        // 2. Upload to Supabase — persists across refresh & devices
+        // 2. Upload to Supabase — Store first
+        let logoRes = null;
         if (window.Store && Store._client) {
-          const res = await Store.uploadProductIcon(p.id, dataUrl);
-          if (res.ok && res.url) {
-            p.logoUrl = res.url;
-            p._resolvedLogo = res.url;
-            localStorage.removeItem("vh_logo_" + p.id);
-            if (logoEl) logoEl.outerHTML = this.productLogoHtml(p, "detail-logo");
-            this.toast("Product icon saved", "success");
-          } else {
-            this.toast("Saved locally only: " + (res.error || "cloud failed"), "error");
-          }
+          logoRes = await Store.uploadProductIcon(p.id, dataUrl);
+        } else if (window.VibeBackend && window.VibeBackend.isReady && window.VibeBackend.isReady()) {
+          logoRes = await window.VibeBackend.uploadProductLogo(p.id, dataUrl);
+        }
+
+        if (logoRes && logoRes.ok && logoRes.url) {
+          p.logoUrl = logoRes.url;
+          p._resolvedLogo = logoRes.url;
+          localStorage.removeItem("vh_logo_" + p.id);
+          const logoEl2 = document.querySelector(".detail-logo");
+          if (logoEl2) logoEl2.outerHTML = this.productLogoHtml(p, "detail-logo");
+          this.toast("Product icon saved", "success");
+        } else if (logoRes && logoRes.ok === false) {
+          console.warn("[Vibehouse] logo upload failed:", logoRes.error);
+          this.toast("Saved locally only: " + (logoRes.error || "cloud failed"), "error");
         } else {
           this.toast("Product icon saved locally", "success");
         }
       } catch (err) {
+        console.error("[Vibehouse] logo upload error:", err);
         this.toast("Could not process image", "error");
       }
     });
@@ -894,7 +915,7 @@ const App = {
     }
 
     const decodedId = decodeURIComponent(id || "");
-    const makerProducts = isMe ? [] : Store.productsByOwner(decodedId);
+    const makerProducts = isMe ? [] : ((window.Store && Store.productsByOwner(decodedId)) || []);
     const maker = makerProducts[0];
     if (!maker && !isMe) {
       el.innerHTML = `<div class="empty"><h3>Profile not found</h3><a href="/" style="color:var(--accent)">← Home</a></div>`;
@@ -952,7 +973,7 @@ const App = {
                 r.readAsDataURL(file);
               });
 
-          // Instant local update
+          // Optimistic local update
           localStorage.setItem("vh_user_photo", dataUrl);
           if (this.user?.id) localStorage.setItem("vh_user_photo_uid", String(this.user.id));
           if (this.user) { this.user.photo = dataUrl; this.saveUser(); }
@@ -966,21 +987,25 @@ const App = {
           }
           this.updateUserChip();
 
-          // Upload to Supabase
+          // Upload — Store first
+          let res = null;
           if (window.Store && Store._client && this.user?.id) {
-            const res = await Store.uploadAvatar(this.user.id, dataUrl);
-            if (res.ok && res.url) {
-              this.user.photo = res.url;
-              this.saveUser();
-              localStorage.removeItem("vh_user_photo");
-              localStorage.removeItem("vh_user_photo_uid");
-              const img2 = document.getElementById("profilePhotoImg");
-              if (img2) img2.src = res.url;
-              this.updateUserChip();
-              this.toast("Profile photo saved", "success");
-            } else {
-              this.toast("Saved locally only: " + (res.error || "cloud failed"), "error");
-            }
+            res = await Store.uploadAvatar(this.user.id, dataUrl);
+          } else if (window.VibeBackend && this.user?.id) {
+            res = await window.VibeBackend.uploadAvatar(this.user.id, dataUrl);
+          }
+
+          if (res && res.ok && res.url) {
+            this.user.photo = res.url;
+            this.saveUser();
+            localStorage.removeItem("vh_user_photo");
+            localStorage.removeItem("vh_user_photo_uid");
+            const img2 = document.getElementById("profilePhotoImg");
+            if (img2) img2.src = res.url;
+            this.updateUserChip();
+            this.toast("Profile photo saved", "success");
+          } else if (res && res.ok === false) {
+            this.toast("Saved locally only: " + (res.error || "cloud failed"), "error");
           } else {
             this.toast("Profile photo saved locally", "success");
           }
@@ -1067,7 +1092,8 @@ const App = {
   },
 
   renderDeals(el) {
-    const deals = Store.products.filter(p => p.priceValue === 0 || !p.priceValue);
+    const source = (window.Store && Store.products) || PRODUCTS;
+    const deals = source.filter(p => p.priceValue === 0 || !p.priceValue);
     el.innerHTML = `
       <div class="page-header">
         <h1 class="page-title">Deals</h1>
@@ -1079,7 +1105,8 @@ const App = {
   },
 
   renderLeaderboard(el) {
-    const ranked = [...Store.products].sort((a, b) => (b.users || 0) - (a.users || 0));
+    const source = (window.Store && Store.products) || PRODUCTS;
+    const ranked = [...source].sort((a, b) => (b.users || 0) - (a.users || 0));
     el.innerHTML = `
       <div class="page-header">
         <h1 class="page-title">Leaderboard</h1>
@@ -1216,7 +1243,6 @@ const App = {
     el.querySelectorAll(".copy-prompt").forEach(b => b.addEventListener("click", async () => { const text = decodeURIComponent(b.dataset.prompt); try { await navigator.clipboard.writeText(text); this.toast("Copied to clipboard", "success"); } catch (e) { this.toast("Clipboard access was blocked", "error"); } }));
   },
 
-  // ✅ FIXED: Launch writes to Supabase via Store
   renderLaunch(el) {
     el.innerHTML = `
       <div class="page-header">
