@@ -11,10 +11,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/css/premium.css">
+
+  <!-- Single boot spinner (this is the ONLY one; do not duplicate in CSS) -->
   <style id="one-loader">
     html.booting::before {
       content: "" !important; display: block !important; position: fixed !important; inset: 0 !important;
-      z-index: 2147483646 !important; background: #07080c !important; animation: none !important;
+      z-index: 2147483646 !important; background: #07080c !important;
     }
     html.booting::after {
       content: "" !important; display: block !important; position: fixed !important; z-index: 2147483647 !important;
@@ -22,10 +24,12 @@
       box-sizing: border-box; border: 3px solid rgba(255,255,255,.18) !important; border-top-color: #a29bfe !important;
       border-radius: 50% !important; background: none !important; animation: vhOneSpin .8s linear infinite !important;
     }
-    html.booting body::before, html.booting body::after { content: none !important; display: none !important; }
     @keyframes vhOneSpin { to { transform: rotate(360deg); } }
   </style>
+
   <script>
+    // Runs before first paint. Sets guest/user chrome and raises boot mask.
+    // app.js removes the boot mask as soon as auth is settled.
     (function () {
       var a = "guest", d = document.documentElement;
       try {
@@ -37,11 +41,13 @@
       } catch (e) {}
       d.setAttribute("data-auth", a);
       d.classList.add("booting");
-      setTimeout(function () { d.classList.remove("booting"); }, 6500);
+      // Safety net only. app.js should remove this within 1-2 seconds.
+      setTimeout(function () { d.classList.remove("booting"); }, 5000);
     })();
   </script>
 </head>
 <body>
+  <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
     <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Expand sidebar" aria-expanded="false" aria-controls="sidebar" title="Expand sidebar">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -77,7 +83,7 @@
       <div class="free-mode" style="margin-bottom:10px" title="Free mode">
         <span class="dot"></span> <span class="nav-label">Free mode</span>
       </div>
-      <div class="user-chip" id="userChip" style="display:none" onclick="App.go('/profile/me')">
+      <div class="user-chip" id="userChip" style="display:none" data-go="/profile/me">
         <div class="user-avatar"></div>
         <div class="user-info">
           <div class="user-name"></div>
@@ -91,6 +97,7 @@
     </div>
   </aside>
 
+  <!-- MAIN -->
   <div class="main">
     <header class="topbar">
       <button class="menu-toggle" id="menuToggle" aria-label="Open menu">
@@ -109,18 +116,22 @@
       <div class="topbar-actions">
         <button class="top-bell" id="topBell" aria-label="Notifications" title="Notifications"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/></svg><span class="bell-n" id="bellN" style="display:none">0</span></button>
         <button class="btn btn-ghost btn-sm" id="topInstall">Install</button>
-        <div id="topGuest" class="top-guest"><button class="btn btn-ghost btn-sm" id="topLogin">Log in</button><button class="btn btn-primary btn-sm" id="topSignup">Sign up</button></div>
-        <div class="top-user" id="topUser" style="display:none" title="Open profile">
+        <div id="topGuest" class="top-guest">
+          <button class="btn btn-ghost btn-sm" id="topLogin">Log in</button>
+          <button class="btn btn-primary btn-sm" id="topSignup">Sign up</button>
+        </div>
+        <div class="top-user" id="topUser" style="display:none" data-go="/profile/me" title="Open profile">
           <div class="tu-av" id="tuAv"></div>
           <div class="tu-txt"><div class="tu-name" id="tuName"></div><div class="tu-meta" id="tuMeta"></div></div>
         </div>
-        <button class="btn btn-ghost btn-sm" id="btnLogout" style="display:none" onclick="App.logout()">Log out</button>
+        <button class="btn btn-ghost btn-sm" id="btnLogout" style="display:none" data-action="logout">Log out</button>
       </div>
     </header>
 
     <main class="content" id="content"></main>
   </div>
 
+  <!-- Auth / media modal -->
   <div class="modal-overlay" id="modalOverlay">
     <div class="modal">
       <button class="modal-close" id="modalClose" aria-label="Close">✕</button>
@@ -128,20 +139,15 @@
     </div>
   </div>
 
-  <!-- ============================================================
-       SCRIPTS — vh-fixes.js and vh-list.js have been REMOVED.
-       Their behavior is now merged into app.js.
-       ============================================================ -->
+  <!-- Script order matters: nothing overrides the files below -->
   <script src="/js/config.js"></script>
   <script src="/js/data.js"></script>
   <script src="/js/icons.js"></script>
   <script src="/js/supabase.js"></script>
-  <script src="/js/supabase-store.js"></script>
-  <script src="/js/app.js"></script>
-  <script src="/js/hub.js"></script>
-  <script src="/js/profile.js"></script>
+  <script src="/js/store.js"></script>
   <script src="/js/media.js"></script>
-  <script src="/js/launch.js?v=2"></script>
+  <script src="/js/profile.js"></script>
+  <script src="/js/app.js"></script>
   <script>
     document.addEventListener("keydown", e => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
