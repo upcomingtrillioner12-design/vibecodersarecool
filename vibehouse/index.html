@@ -12,8 +12,6 @@
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/css/premium.css">
   <style id="one-loader">
-    /* While booting: an opaque full-screen layer with ONE spinner. It sits above everything,
-       so no other spinner (page, product page, content area) can show through. */
     html.booting::before {
       content: "" !important; display: block !important; position: fixed !important; inset: 0 !important;
       z-index: 2147483646 !important; background: #07080c !important; animation: none !important;
@@ -28,10 +26,6 @@
     @keyframes vhOneSpin { to { transform: rotate(360deg); } }
   </style>
   <script>
-    // Runs before first paint. It does two jobs:
-    //  1) picks logged-in vs guest chrome from the local snapshot (no flicker on refresh)
-    //  2) raises the "booting" mask so the page is never shown in a wrong auth state.
-    //     app.js lowers the mask once it knows who the user is.
     (function () {
       var a = "guest", d = document.documentElement;
       try {
@@ -43,7 +37,6 @@
       } catch (e) {}
       d.setAttribute("data-auth", a);
       d.classList.add("booting");
-      // Safety net only: app.js removes the mask itself as soon as auth is settled.
       setTimeout(function () { d.classList.remove("booting"); }, 6500);
     })();
   </script>
@@ -85,13 +78,16 @@
       <div class="free-mode" style="margin-bottom:10px" title="Free mode">
         <span class="dot"></span> <span class="nav-label">Free mode</span>
       </div>
+
+      <!-- ✅ CHANGED: user chip is now empty — filled at runtime by App.updateUserChip() -->
       <div class="user-chip" id="userChip" style="display:none" onclick="App.go('/profile/me')">
-        <div class="user-avatar">L</div>
+        <div class="user-avatar"></div>
         <div class="user-info">
-          <div class="user-name">Linkan</div>
-          <div class="user-meta">0 tools · 0 karma</div>
+          <div class="user-name"></div>
+          <div class="user-meta"></div>
         </div>
       </div>
+
       <div id="authButtons" style="display:flex;gap:8px;flex-direction:column">
         <button class="btn btn-ghost btn-sm" id="btnLogin" title="Log in" style="justify-content:center;gap:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg><span class="nav-label">Log in</span></button>
         <button class="btn btn-primary btn-sm" id="btnSignup" title="Sign up" style="justify-content:center;gap:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg><span class="nav-label">Sign up</span></button>
@@ -140,22 +136,35 @@
     </div>
   </div>
 
-  <!-- Absolute paths: relative ones break on deep links like /ai/daxeon (they resolve to /ai/js/...) -->
+  <!-- ============================================================
+       SCRIPTS — Load order matters
+       ============================================================ -->
+
+  <!-- 1. Foundation (no dependencies) -->
   <script src="/js/config.js"></script>
-  <script src="/js/data.js"></script>
+  <script src="/js/data.js"></script>       <!-- seed fallback only -->
   <script src="/js/icons.js"></script>
-  <script src="/js/supabase.js"></script>
+
+  <!-- 2. Backend + Store (needs config) -->
+  <script src="/js/supabase.js"></script>          <!-- your VibeBackend wrapper -->
+  <script src="/js/supabase-store.js"></script>    <!-- 🔥 NEW: single source of truth -->
+
+  <!-- 3. Core app (needs everything above) -->
   <script src="/js/app.js"></script>
+
+  <!-- 4. Feature modules — RENDER LATER, so they can safely override app.js UI -->
   <script src="/js/hub.js"></script>
   <script src="/js/profile.js"></script>
   <script src="/js/media.js"></script>
   <script src="/js/launch.js?v=2"></script>
-  <!-- overrides product cards + "my profile" after the files above have set theirs -->
+
+  <!-- 5. UI fix layers — these RUN LAST and override everything else.
+       ⚠️  These are the files that break persistence and re-show "View full profile".
+       Paste them to me before we rely on them. -->
   <script src="/js/vh-fixes.js?v=2"></script>
-  <!-- MUST stay last: compact one-line rows for every product/tool list (replaces the big demo cards) -->
   <script src="/js/vh-list.js?v=1"></script>
+
   <script>
-    // Keyboard shortcut ⌘K / Ctrl+K for search
     document.addEventListener("keydown", e => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
