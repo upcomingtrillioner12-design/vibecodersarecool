@@ -1,6 +1,5 @@
 // ============================================================
 // Vibehouse Icon Engine — real SVG icons for every product & maker
-// Generates data-URI images so UI never shows empty placeholders
 // ============================================================
 
 const IconEngine = {
@@ -8,7 +7,6 @@ const IconEngine = {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   },
 
-  // Deterministic color from string
   colorFrom(str, palette) {
     const colors = palette || [
       "#6c5ce7", "#00b894", "#0984e3", "#e17055", "#fd79a8",
@@ -28,11 +26,9 @@ const IconEngine = {
     return (a + b).toUpperCase();
   },
 
-  // Round product logo as SVG data URI
   productSvg(name, bg) {
     const mono = this._esc(this.mono(name));
     const color = this._validColor(bg) || this.colorFrom(name);
-    // Unique gradient id per name to avoid collisions when many SVGs on page
     const gid = "g" + String(name || "x").replace(/\W/g, "").slice(0, 12) + Math.abs(this._hash(name));
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
       <defs>
@@ -58,7 +54,6 @@ const IconEngine = {
     return /^#[0-9a-f]{6}$/i.test(String(c || "")) ? c : null;
   },
 
-  // Circular avatar SVG
   avatarSvg(name, bg) {
     const letter = this._esc(String(name || "?").trim()[0] || "?").toUpperCase();
     const color = this._validColor(bg) || this.colorFrom(name + "avatar");
@@ -81,19 +76,23 @@ const IconEngine = {
     return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   },
 
-  // Resolve product logo: image saved on this device → logo URL → generated SVG.
-  // The saved override comes FIRST so an icon the owner uploaded is not hidden by the
-  // default logoUrl from data.js after a reload.
+  // ✅ FIXED: Cloud URL wins over localStorage.
+  // This is the single most important fix for icon persistence.
   productLogo(p) {
+    // 1. Supabase Storage URL (persists across refresh & devices)
+    if (p.logoUrl) return p.logoUrl;
+
+    // 2. Local cache — only used before cloud sync finishes
     try {
       const stored = localStorage.getItem("vh_logo_" + p.id);
       if (stored) return stored;
     } catch (e) {}
-    if (p.logoUrl) return p.logoUrl;
+
+    // 3. Auto-generated fallback SVG
     return this.productSvg(p.name, p.logoColor);
   },
 
-  // Resolve owner avatar
+  // ✅ FIXED: Same priority order for owner avatars
   ownerAvatar(p) {
     if (p.ownerAvatarUrl) return p.ownerAvatarUrl;
     try {
@@ -103,8 +102,6 @@ const IconEngine = {
     return this.avatarSvg(p.owner, p.ownerColor);
   },
 
-  // The photo saved on this device, but only if it belongs to this user
-  // (so a second account on the same browser never inherits the first one's photo).
   localUserPhoto(user) {
     try {
       const photo = localStorage.getItem("vh_user_photo");
@@ -115,14 +112,12 @@ const IconEngine = {
     return null;
   },
 
-  // Resolve current user photo: cloud URL from the profile → photo saved on this device
   userPhoto(user) {
     if (!user) return null;
     if (user.photo) return user.photo;
     return this.localUserPhoto(user);
   },
 
-  // Compress & store image file as data URL (max ~400kb)
   async fileToDataUrl(file, maxSize = 400) {
     return new Promise((resolve, reject) => {
       if (!file || !file.type.startsWith("image/")) {
@@ -144,13 +139,11 @@ const IconEngine = {
           canvas.width = w;
           canvas.height = h;
           const ctx = canvas.getContext("2d");
-          // JPEG has no transparency: paint white first so transparent PNG logos don't turn black
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, w, h);
           ctx.drawImage(img, 0, 0, w, h);
           let quality = 0.85;
           let dataUrl = canvas.toDataURL("image/jpeg", quality);
-          // Shrink if too large
           while (dataUrl.length > maxSize * 1024 && quality > 0.4) {
             quality -= 0.1;
             dataUrl = canvas.toDataURL("image/jpeg", quality);
@@ -165,13 +158,11 @@ const IconEngine = {
   }
 };
 
-// Attach generated logos to PRODUCTS at load
 (function seedIcons() {
   if (typeof PRODUCTS === "undefined") return;
   PRODUCTS.forEach(p => {
     if (!p.logoColor) p.logoColor = IconEngine.colorFrom(p.id || p.name);
     if (!p.ownerColor) p.ownerColor = IconEngine.colorFrom((p.ownerId || p.owner) + "o");
-    // Pre-resolve so cards never flash empty
     p._resolvedLogo = IconEngine.productLogo(p);
     p._resolvedAvatar = IconEngine.ownerAvatar(p);
   });
