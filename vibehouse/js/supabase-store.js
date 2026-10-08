@@ -13,7 +13,6 @@ const Store = {
     if (this._ready) return true;
     this._client = window.VibeBackend?.client?.();
     if (!this._client) {
-      // Offline fallback — load seed data from data.js
       this.products = [...(window.PRODUCTS || [])];
       this.news = [...(window.NEWS || [])];
       this._ready = true;
@@ -35,7 +34,6 @@ const Store = {
       if (data && data.length) {
         this.products = data.map(this.normalize);
       } else {
-        // No products in Supabase yet — use seed
         this.products = [...(window.PRODUCTS || [])];
       }
     } catch (e) {
@@ -45,7 +43,6 @@ const Store = {
     this.news = [...(window.NEWS || [])];
   },
 
-  // Convert Supabase row → app shape
   normalize(row) {
     return {
       id: row.id,
@@ -88,7 +85,6 @@ const Store = {
     );
   },
 
-  // Find products by owner — supports UUID, slug, and name
   productsByOwner(ownerKey) {
     if (!ownerKey) return [];
     const target = String(decodeURIComponent(ownerKey)).toLowerCase();
@@ -103,30 +99,24 @@ const Store = {
 
   async updateProduct(id, patch) {
     if (!this._client) {
-      // Offline — mutate in-memory only
       const p = this.findProduct(id);
       if (p) Object.assign(p, patch);
       return { ok: true, offline: true };
     }
     const dbPatch = {};
-    if (patch.logoUrl !== undefined)     dbPatch.logo_url = patch.logoUrl;
+    if (patch.logoUrl !== undefined)        dbPatch.logo_url = patch.logoUrl;
     if (patch.ownerAvatarUrl !== undefined) dbPatch.owner_avatar_url = patch.ownerAvatarUrl;
-    if (patch.name !== undefined)        dbPatch.name = patch.name;
-    if (patch.desc !== undefined)        dbPatch.desc_short = patch.desc;
-    if (patch.longDesc !== undefined)    dbPatch.long_desc = patch.longDesc;
+    if (patch.name !== undefined)           dbPatch.name = patch.name;
+    if (patch.desc !== undefined)           dbPatch.desc_short = patch.desc;
+    if (patch.longDesc !== undefined)       dbPatch.long_desc = patch.longDesc;
 
-    const { error } = await this._client
-      .from("products")
-      .update(dbPatch)
-      .eq("id", id);
+    const { error } = await this._client.from("products").update(dbPatch).eq("id", id);
     if (error) return { ok: false, error: error.message };
 
     const p = this.findProduct(id);
     if (p) Object.assign(p, patch);
     return { ok: true };
   },
-
-  // ---------- STORAGE UPLOADS ----------
 
   async uploadProductIcon(productId, dataUrl) {
     if (!this._client) return { ok: false, error: "No backend" };
@@ -146,7 +136,6 @@ const Store = {
       const url = pub?.publicUrl;
       if (!url) return { ok: false, error: "No public URL" };
 
-      // Persist to DB
       const upd = await this.updateProduct(productId, { logoUrl: url });
       if (!upd.ok) return upd;
       return { ok: true, url };
@@ -180,8 +169,6 @@ const Store = {
     }
   },
 
-  // ---------- PRODUCT SUBMISSION ----------
-
   async createProduct(payload, userId) {
     if (!this._client) return { ok: false, error: "No backend", offline: true };
     const slug = payload.name.toLowerCase()
@@ -214,7 +201,6 @@ const Store = {
     const { error } = await this._client.from("products").insert(row);
     if (error) return { ok: false, error: error.message };
 
-    // Add to local cache immediately
     this.products.unshift(this.normalize(row));
     return { ok: true, product: this.normalize(row) };
   },
