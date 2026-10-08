@@ -1,46 +1,13 @@
 // ============================================================
-// Vibehouse Icon Engine — real SVG icons for every product & maker
+// Vibehouse Icon Engine
+// Priority: Cloud URL → localStorage bridge → generated SVG
 // ============================================================
 
-const IconEngine = {
+window.IconEngine = {
   _esc(s) {
-    return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  },
-
-  colorFrom(str, palette) {
-    const colors = palette || [
-      "#6c5ce7", "#00b894", "#0984e3", "#e17055", "#fd79a8",
-      "#00cec9", "#fdcb6e", "#a29bfe", "#55efc4", "#74b9ff",
-      "#ff7675", "#ffeaa7", "#81ecec", "#fab1a0"
-    ];
-    let h = 0;
-    const s = String(str || "x");
-    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-    return colors[h % colors.length];
-  },
-
-  mono(name) {
-    const w = String(name || "?").trim().split(/\s+/);
-    const a = (w[0] && w[0][0]) || "?";
-    const b = w[1] ? w[1][0] : ((w[0] && w[0][1]) || "");
-    return (a + b).toUpperCase();
-  },
-
-  productSvg(name, bg) {
-    const mono = this._esc(this.mono(name));
-    const color = this._validColor(bg) || this.colorFrom(name);
-    const gid = "g" + String(name || "x").replace(/\W/g, "").slice(0, 12) + Math.abs(this._hash(name));
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-      <defs>
-        <linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="${color}"/>
-          <stop offset="100%" stop-color="${this.shade(color, -25)}"/>
-        </linearGradient>
-      </defs>
-      <circle cx="64" cy="64" r="64" fill="url(#${gid})"/>
-      <text x="64" y="76" text-anchor="middle" font-family="system-ui,Archivo,sans-serif" font-weight="800" font-size="${mono.length > 1 ? 40 : 48}" fill="#fff">${mono}</text>
-    </svg>`;
-    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    return String(s ?? "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
   },
 
   _hash(str) {
@@ -50,18 +17,22 @@ const IconEngine = {
     return h;
   },
 
-  _validColor(c) {
-    return /^#[0-9a-f]{6}$/i.test(String(c || "")) ? c : null;
+  _validColor(c) { return /^#[0-9a-f]{6}$/i.test(String(c || "")) ? c : null; },
+
+  colorFrom(str, palette) {
+    const colors = palette || [
+      "#6c5ce7","#00b894","#0984e3","#e17055","#fd79a8",
+      "#00cec9","#fdcb6e","#a29bfe","#55efc4","#74b9ff",
+      "#ff7675","#ffeaa7","#81ecec","#fab1a0"
+    ];
+    return colors[this._hash(str || "x") % colors.length];
   },
 
-  avatarSvg(name, bg) {
-    const letter = this._esc(String(name || "?").trim()[0] || "?").toUpperCase();
-    const color = this._validColor(bg) || this.colorFrom(name + "avatar");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-      <circle cx="64" cy="64" r="64" fill="${color}"/>
-      <text x="64" y="76" text-anchor="middle" font-family="system-ui,Archivo,sans-serif" font-weight="700" font-size="52" fill="#fff">${letter}</text>
-    </svg>`;
-    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  mono(name) {
+    const w = String(name || "?").trim().split(/\s+/);
+    const a = (w[0] && w[0][0]) || "?";
+    const b = w[1] ? w[1][0] : ((w[0] && w[0][1]) || "");
+    return (a + b).toUpperCase();
   },
 
   shade(hex, percent) {
@@ -76,30 +47,48 @@ const IconEngine = {
     return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
   },
 
-  // ✅ FIXED: Cloud URL wins over localStorage.
-  // This is the single most important fix for icon persistence.
-  productLogo(p) {
-    // 1. Supabase Storage URL (persists across refresh & devices)
-    if (p.logoUrl) return p.logoUrl;
-
-    // 2. Local cache — only used before cloud sync finishes
-    try {
-      const stored = localStorage.getItem("vh_logo_" + p.id);
-      if (stored) return stored;
-    } catch (e) {}
-
-    // 3. Auto-generated fallback SVG
-    return this.productSvg(p.name, p.logoColor);
+  productSvg(name, bg) {
+    const mono = this._esc(this.mono(name));
+    const color = this._validColor(bg) || this.colorFrom(name);
+    const gid = "g" + String(name || "x").replace(/\W/g, "").slice(0, 12) + Math.abs(this._hash(name));
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${color}"/>
+        <stop offset="100%" stop-color="${this.shade(color, -25)}"/>
+      </linearGradient></defs>
+      <circle cx="64" cy="64" r="64" fill="url(#${gid})"/>
+      <text x="64" y="76" text-anchor="middle" font-family="system-ui,Archivo,sans-serif" font-weight="800" font-size="${mono.length > 1 ? 40 : 48}" fill="#fff">${mono}</text>
+    </svg>`;
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   },
 
-  // ✅ FIXED: Same priority order for owner avatars
-  ownerAvatar(p) {
-    if (p.ownerAvatarUrl) return p.ownerAvatarUrl;
+  avatarSvg(name, bg) {
+    const letter = this._esc(String(name || "?").trim()[0] || "?").toUpperCase();
+    const color = this._validColor(bg) || this.colorFrom(name + "avatar");
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+      <circle cx="64" cy="64" r="64" fill="${color}"/>
+      <text x="64" y="76" text-anchor="middle" font-family="system-ui,Archivo,sans-serif" font-weight="700" font-size="52" fill="#fff">${letter}</text>
+    </svg>`;
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  },
+
+  // Cloud URL wins. localStorage is only a bridge before cloud sync.
+  productLogo(p) {
+    if (p && p.logoUrl) return p.logoUrl;
     try {
-      const stored = localStorage.getItem("vh_avatar_" + (p.ownerId || ""));
+      const stored = localStorage.getItem("vh_logo_" + (p && p.id || ""));
       if (stored) return stored;
     } catch (e) {}
-    return this.avatarSvg(p.owner, p.ownerColor);
+    return this.productSvg((p && p.name) || "?", (p && p.logoColor) || null);
+  },
+
+  ownerAvatar(p) {
+    if (p && p.ownerAvatarUrl) return p.ownerAvatarUrl;
+    try {
+      const stored = localStorage.getItem("vh_avatar_" + (p && p.ownerId || ""));
+      if (stored) return stored;
+    } catch (e) {}
+    return this.avatarSvg((p && p.owner) || "?", (p && p.ownerColor) || null);
   },
 
   localUserPhoto(user) {
@@ -118,12 +107,10 @@ const IconEngine = {
     return this.localUserPhoto(user);
   },
 
+  // Compress & return a data URL (max ~400 KB)
   async fileToDataUrl(file, maxSize = 400) {
     return new Promise((resolve, reject) => {
-      if (!file || !file.type.startsWith("image/")) {
-        reject(new Error("Not an image"));
-        return;
-      }
+      if (!file || !file.type.startsWith("image/")) return reject(new Error("Not an image"));
       const reader = new FileReader();
       reader.onerror = () => reject(new Error("Read failed"));
       reader.onload = () => {
@@ -136,11 +123,9 @@ const IconEngine = {
             if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
             else { w = Math.round(w * maxDim / h); h = maxDim; }
           }
-          canvas.width = w;
-          canvas.height = h;
+          canvas.width = w; canvas.height = h;
           const ctx = canvas.getContext("2d");
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, h);
           ctx.drawImage(img, 0, 0, w, h);
           let quality = 0.85;
           let dataUrl = canvas.toDataURL("image/jpeg", quality);
@@ -157,13 +142,3 @@ const IconEngine = {
     });
   }
 };
-
-(function seedIcons() {
-  if (typeof PRODUCTS === "undefined") return;
-  PRODUCTS.forEach(p => {
-    if (!p.logoColor) p.logoColor = IconEngine.colorFrom(p.id || p.name);
-    if (!p.ownerColor) p.ownerColor = IconEngine.colorFrom((p.ownerId || p.owner) + "o");
-    p._resolvedLogo = IconEngine.productLogo(p);
-    p._resolvedAvatar = IconEngine.ownerAvatar(p);
-  });
-})();
