@@ -24,7 +24,7 @@
     padding:7px 14px;border-radius:999px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);
     color:var(--text,#f2f3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .vh-row .vr-owner{display:flex;align-items:center;gap:10px;min-width:0}
-  .vh-row .vr-owner .owner-avatar{flex:none;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
+  .vh-row .vr-owner .owner-avatar{flex:none;width:32px;height:32px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px}
   .vh-row .vr-owner .owner-avatar img{width:100%;height:100%;object-fit:cover}
   .vh-row .vr-owner-name{font-size:13px;font-weight:700;color:var(--text,#f2f3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .vh-row .vr-price{justify-self:end;font-size:13px;font-weight:700;color:var(--text,#f2f3f7);white-space:nowrap}
@@ -40,6 +40,21 @@
     st.textContent = css;
     document.head.appendChild(st);
   }
+
+  // Consistent owner avatar: real photo if uploaded, otherwise a letter
+  // avatar whose color is the same for every product by the same owner.
+  App.ownerAvatarHtml = function (p, size = 32) {
+    const s = size || 32;
+    if (p.ownerAvatarUrl) {
+      return `<div class="owner-avatar" style="width:${s}px;height:${s}px">
+        <img src="${App.esc(p.ownerAvatarUrl)}" alt="${App.esc(p.owner || "")}" loading="lazy">
+      </div>`;
+    }
+    const color = p.ownerColor ||
+      (window.IconEngine ? IconEngine.colorFrom((p.ownerId || p.id) + "o") : "#7c6cf0");
+    const letter = String(p.owner || "?").charAt(0).toUpperCase();
+    return `<div class="owner-avatar" style="width:${s}px;height:${s}px;background:${color}">${App.esc(letter)}</div>`;
+  };
 
   App._renderProductCards = function (container, list) {
     if (!container) return;
