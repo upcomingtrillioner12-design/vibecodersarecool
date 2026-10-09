@@ -1,5 +1,6 @@
 // ============================================================
 // Vibehouse Hub – listings, ownership, stats, dashboard, follows
+// + Full product editing for owners
 // ============================================================
 (function () {
   const CONTACT = "upcomingtrillioner12@gmail.com";
@@ -95,7 +96,6 @@
           (pr.data || []).forEach(x => { prof[x.id] = x; });
         }
 
-        // Rebuild PRODUCTS from live listings only
         PRODUCTS.length = 0;
         rows.forEach(r => {
           const p = mk(fromRow(r, prof[r.owner_id]));
@@ -210,7 +210,7 @@
 
   window.VHI = { TYPES, CATS, validate, parse, normUrl, mk, merge, sb, esc };
 
-  // ---------- Product detail (CTA + stats) ----------
+  // ---------- Product detail (CTA + full owner edit) ----------
   const origProduct = App.renderProduct.bind(App);
   App.renderProduct = function (el, id) {
     origProduct(el, id);
@@ -229,7 +229,12 @@
 
     let html = mkBtn(p.cta || t.cta, 1, p.url, true);
     if (p.typeKey === "mobile" && p.url2) html += mkBtn("Get on Google Play", 2, p.url2, false);
-    if (App.isProductOwner(p)) html += `<button class="btn btn-ghost" id="vhEditBtn">Edit links</button>`;
+
+    // Owner gets full Edit Product button
+    if (App.isProductOwner(p)) {
+      html += `<button class="btn btn-ghost" id="vhEditBtn">Edit product</button>`;
+    }
+
     acts.innerHTML = html;
 
     const note = !p.url ? "The maker hasn't added a link yet"
@@ -241,62 +246,269 @@
        <div id="vhEdit"></div>`
     );
 
-    $id("vhEditBtn")?.addEventListener("click", () => editPanel(p));
+    $id("vhEditBtn")?.addEventListener("click", () => openFullEdit(p));
   };
 
-  function editPanel(p) {
+  // ============================================================
+  // FULL PRODUCT EDIT FORM (owner only)
+  // ============================================================
+  function openFullEdit(p) {
     const t = TYPES[p.typeKey] || TYPES.webapp;
-    const box = $id("vhEdit");
-    if (!box) return;
-    box.innerHTML = `
-      <div class="vh-form" style="margin-top:12px">
-        <div><label>${esc(t.label)}</label>
-          <input id="eUrl" type="url" value="${esc(p.url)}" placeholder="${esc(t.ph)}"></div>
-        ${p.typeKey === "mobile" ? `<div><label>Google Play link (optional)</label>
-          <input id="eUrl2" type="url" value="${esc(p.url2)}" placeholder="https://play.google.com/..."></div>` : ""}
-        ${p.typeKey === "agent" ? `<div><label>Button</label>
-          <select id="eCta">
+    const overlay = document.getElementById("modalOverlay");
+    const body = document.getElementById("modalBody");
+    if (!overlay || !body) return;
+
+    const features = (p.features || []).join(", ");
+    const inputs = (p.inputs || []).join(", ");
+
+    body.innerHTML = `
+      <h2 class="modal-title">Edit product</h2>
+      <form id="editProductForm" class="vh-form" style="max-width:100%">
+        <div class="field">
+          <label>Product name</label>
+          <input id="epName" maxlength="80" value="${esc(p.name)}" required>
+        </div>
+        <div class="field">
+          <label>One-liner</label>
+          <input id="epDesc" maxlength="160" value="${esc(p.desc)}" required>
+        </div>
+        <div class="field">
+          <label>Full description</label>
+          <textarea id="epLong" rows="4" maxlength="4000">${esc(p.longDesc || "")}</textarea>
+        </div>
+
+        <div class="field">
+          <label>${esc(t.label)}</label>
+          <input id="epUrl" type="url" value="${esc(p.url || "")}" placeholder="${esc(t.ph)}">
+        </div>
+        ${p.typeKey === "mobile" ? `
+        <div class="field">
+          <label>Google Play link (optional)</label>
+          <input id="epUrl2" type="url" value="${esc(p.url2 || "")}">
+        </div>` : ""}
+
+        ${p.typeKey === "agent" ? `
+        <div class="field">
+          <label>Button label</label>
+          <select id="epCta">
             <option ${p.cta === "Try" ? "selected" : ""}>Try</option>
             <option ${p.cta === "Connect" ? "selected" : ""}>Connect</option>
-          </select></div>` : ""}
-        <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn btn-primary btn-sm" id="eSave">Save</button>
-          <button class="btn btn-ghost btn-sm" id="eDel">Delete listing</button>
+          </select>
+        </div>` : ""}
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="field">
+            <label>Category</label>
+            <select id="epCat">
+              ${CATS.map(c => `<option ${p.category === c ? "selected" : ""}>${c}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label>Pricing model</label>
+            <select id="epPricing">
+              ${["Free", "Freemium", "Free trial", "Paid"].map(c =>
+                `<option ${(p.pricing || (p.priceValue === 0 ? "Free" : "Paid")) === c ? "selected" : ""}>${c}</option>`
+              ).join("")}
+            </select>
+          </div>
         </div>
-        <p class="vh-note" id="eOut"></p>
-      </div>`;
 
-    const out = $id("eOut");
-    const fail = m => { out.textContent = m; out.style.color = "var(--danger)"; };
+        <div class="field" id="epPriceWrap" style="display:${(p.priceValue === 0 || p.pricing === "Free") ? "none" : "block"}">
+          <label>Price (e.g. ₹499/mo or $12/mo)</label>
+          <input id="epPrice" maxlength="40" value="${esc(p.price || "")}">
+        </div>
 
-    $id("eSave").onclick = async () => {
-      const url = $id("eUrl").value.trim();
-      const url2 = ($id("eUrl2")?.value || "").trim();
-      const cta = $id("eCta")?.value || t.cta;
-      const err = validate(p.typeKey, url, url2);
-      if (err) return fail(err);
+        <div class="field">
+          <label>Pricing details (optional)</label>
+          <input id="epPD" maxlength="200" value="${esc(p.pricingDetails || "")}">
+        </div>
 
-      const c = sb();
-      if (!c) return fail("Backend not ready");
-      const { error } = await c.from("listings").update({ url, url2: url2 || null, cta }).eq("id", p.id);
-      if (error) return fail("Couldn't save: " + error.message);
+        <div class="field">
+          <label>Key features (comma separated)</label>
+          <input id="epFeatures" value="${esc(features)}" placeholder="Smart prioritization, AI drafts, Daily digest">
+        </div>
 
-      Object.assign(p, { url, url2, cta });
-      App.toast("Saved", "success");
-      App.route();
+        <div class="field">
+          <label>Supported inputs (comma separated)</label>
+          <input id="epInputs" value="${esc(inputs)}" placeholder="Text, Image, PDF">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="field">
+            <label>Version (optional)</label>
+            <input id="epVer" maxlength="20" value="${esc(p.version || "")}">
+          </div>
+          <div class="field">
+            <label>GitHub (optional)</label>
+            <input id="epGit" type="url" value="${esc(p.github || "")}">
+          </div>
+        </div>
+
+        <div class="field">
+          <label>What's new / Release notes (optional)</label>
+          <textarea id="epRel" rows="2" maxlength="300">${esc(p.releaseNotes || "")}</textarea>
+        </div>
+
+        <div class="field">
+          <label>Demo video URL (YouTube / Vimeo / Loom / .mp4)</label>
+          <input id="epVideo" type="url" value="${esc(p.video || "")}">
+        </div>
+
+        <div class="field">
+          <label>Logo URL (or keep current)</label>
+          <input id="epLogo" type="url" value="${esc(p.logoUrl || "")}" placeholder="https://.../logo.png">
+        </div>
+
+        <p class="vh-note" id="epMsg" style="min-height:1.4em"></p>
+
+        <div style="display:flex;gap:10px;margin-top:8px">
+          <button type="submit" class="btn btn-primary" id="epSave" style="flex:1">Save changes</button>
+          <button type="button" class="btn btn-ghost" id="epCancel">Cancel</button>
+        </div>
+
+        <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px">
+          <button type="button" class="btn btn-ghost" id="epDelete" style="color:var(--danger);width:100%">
+            Delete this product
+          </button>
+        </div>
+      </form>
+    `;
+
+    overlay.classList.add("open");
+
+    // Pricing toggle
+    document.getElementById("epPricing").onchange = e => {
+      document.getElementById("epPriceWrap").style.display =
+        e.target.value === "Free" ? "none" : "block";
     };
 
-    $id("eDel").onclick = async () => {
-      if (!confirm(`Delete “${p.name}”? This can't be undone.`)) return;
+    document.getElementById("epCancel").onclick = () => App.closeModal();
+
+    // Delete
+    document.getElementById("epDelete").onclick = async () => {
+      if (!confirm(`Delete “${p.name}”? This cannot be undone.`)) return;
       const c = sb();
-      if (c) {
-        const { error } = await c.from("listings").delete().eq("id", p.id);
-        if (error) return App.toast("Couldn't delete: " + error.message, "error");
-      }
+      if (!c) return App.toast("Backend not ready", "error");
+      const { error } = await c.from("listings").delete().eq("id", p.id);
+      if (error) return App.toast("Could not delete: " + error.message, "error");
       const i = PRODUCTS.findIndex(x => x.id === p.id);
       if (i >= 0) PRODUCTS.splice(i, 1);
-      App.toast("Deleted", "success");
+      App.closeModal();
+      App.toast("Product deleted", "success");
       App.go("/dashboard");
+    };
+
+    // Save
+    document.getElementById("editProductForm").onsubmit = async e => {
+      e.preventDefault();
+      const msg = document.getElementById("epMsg");
+      const btn = document.getElementById("epSave");
+      btn.disabled = true;
+      msg.style.color = "var(--text-muted)";
+      msg.textContent = "Saving...";
+
+      const name = document.getElementById("epName").value.trim();
+      const desc = document.getElementById("epDesc").value.trim();
+      const longDesc = document.getElementById("epLong").value.trim();
+      const url = document.getElementById("epUrl").value.trim();
+      const url2 = (document.getElementById("epUrl2")?.value || "").trim();
+      const cta = document.getElementById("epCta")?.value || t.cta;
+      const category = document.getElementById("epCat").value;
+      const pricing = document.getElementById("epPricing").value;
+      const price = document.getElementById("epPrice").value.trim();
+      const pricingDetails = document.getElementById("epPD").value.trim();
+      const features = document.getElementById("epFeatures").value
+        .split(",").map(s => s.trim()).filter(Boolean);
+      const inputs = document.getElementById("epInputs").value
+        .split(",").map(s => s.trim()).filter(Boolean);
+      const version = document.getElementById("epVer").value.trim();
+      const github = document.getElementById("epGit").value.trim();
+      const releaseNotes = document.getElementById("epRel").value.trim();
+      const video = document.getElementById("epVideo").value.trim();
+      const logoUrl = document.getElementById("epLogo").value.trim() || p.logoUrl;
+
+      if (name.length < 2) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = "Name is too short";
+        btn.disabled = false;
+        return;
+      }
+      if (desc.length < 10) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = "One-liner must be at least 10 characters";
+        btn.disabled = false;
+        return;
+      }
+
+      const err = validate(p.typeKey, url, url2);
+      if (err) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = err;
+        btn.disabled = false;
+        return;
+      }
+
+      const payload = {
+        name,
+        description: desc,
+        long_desc: longDesc,
+        url,
+        url2: url2 || null,
+        cta,
+        category,
+        pricing,
+        price: pricing === "Free" ? "Free" : (price || pricing),
+        pricing_details: pricingDetails || null,
+        features,
+        inputs,
+        version: version || null,
+        github: github || null,
+        release_notes: releaseNotes || null,
+        video_url: video || null,
+        logo_url: logoUrl || null
+      };
+
+      const c = sb();
+      if (!c) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = "Backend not ready";
+        btn.disabled = false;
+        return;
+      }
+
+      const { error } = await c.from("listings").update(payload).eq("id", p.id);
+      if (error) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = "Could not save: " + error.message;
+        btn.disabled = false;
+        return;
+      }
+
+      // Update local object so UI updates immediately
+      Object.assign(p, {
+        name,
+        desc,
+        longDesc,
+        url,
+        url2,
+        cta,
+        category,
+        pricing,
+        price: payload.price,
+        priceValue: pricing === "Free" ? 0 : 1,
+        pricingDetails,
+        features,
+        inputs,
+        version,
+        github,
+        releaseNotes,
+        video,
+        logoUrl
+      });
+
+      App.closeModal();
+      App.toast("Product updated", "success");
+      App.route(); // refresh the page
     };
   }
 
@@ -319,7 +531,6 @@
     }
 
     if (isMe) {
-      // My profile – full edit + photo
       const draw = async () => {
         const u = App.user;
         const list = PRODUCTS.filter(p => App.isProductOwner(p));
