@@ -150,6 +150,7 @@
         }
         i.value = "";
       };
+
       document.getElementById("fFeatInp").addEventListener("keydown", e => {
         if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addFeat(); }
       });
@@ -164,6 +165,7 @@
       });
 
       document.getElementById("s2Back").onclick = () => { collect(); go(1); };
+
       document.getElementById("s2").onsubmit = e => {
         e.preventDefault();
         addFeat();
@@ -252,6 +254,7 @@
           drawShots();
         });
       };
+
       const drawVid = () => {
         const g = document.getElementById("vidGrid");
         if (g) g.innerHTML = S.vfile
@@ -264,6 +267,7 @@
           document.getElementById("vidBtn").textContent = "Upload video file";
         });
       };
+
       drawShots();
       drawVid();
 
@@ -313,6 +317,7 @@
       });
 
       document.getElementById("s3Back").onclick = () => { S.d.video = val("fVideo"); go(2); };
+
       document.getElementById("s3").onsubmit = e => {
         e.preventDefault();
         S.d.video = val("fVideo");
@@ -357,6 +362,7 @@
         </div>`;
 
       document.getElementById("s4Back").onclick = () => go(3);
+
       document.getElementById("s4Go").onclick = async ev => {
         const btn = ev.target;
         const stat = document.getElementById("gStat");
@@ -373,7 +379,9 @@
           stat.textContent = label;
         };
 
-        const uid = String(App.user.id);
+        // Use pure UUID – never convert to String()
+        const uid = App.user.id;
+
         const put = async (f, kind) => {
           let up = f;
           if (kind !== "video" && f.size > MAX.shot) up = await shrink(f, 2400, 0.85, true);
@@ -402,33 +410,71 @@
           }
 
           stat.textContent = "Publishing…";
+
           const id = d.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) + "-" + Math.random().toString(36).slice(2, 6);
           const price = d.pricing === "Free" ? "Free" : (fmtPrice(d.currency, d.price) || d.pricing);
 
           const l = {
-            id, typeKey: S.key, name: d.name, category: d.category, desc: d.desc, longDesc: d.longDesc,
-            url: d.url, url2: d.url2 || "", cta,
-            owner: App.user.name, ownerId: App.user.id, ownerEmail: d.email,
-            pricing: d.pricing, price, pricingDetails: d.pricingDetails || "",
-            logoUrl, screenshots: shotUrls, video,
-            features: d.features, inputs: d.inputs,
-            version: d.version || "", releaseNotes: d.releaseNotes || "", github: d.github || "",
-            featured: false, created: new Date().toISOString()
+            id,
+            typeKey: S.key,
+            name: d.name,
+            category: d.category,
+            desc: d.desc,
+            longDesc: d.longDesc,
+            url: d.url,
+            url2: d.url2 || "",
+            cta,
+            owner: App.user.name,
+            ownerId: App.user.id,          // pure UUID
+            ownerEmail: d.email,
+            pricing: d.pricing,
+            price,
+            pricingDetails: d.pricingDetails || "",
+            logoUrl,
+            screenshots: shotUrls,
+            video,
+            features: d.features,
+            inputs: d.inputs,
+            version: d.version || "",
+            releaseNotes: d.releaseNotes || "",
+            github: d.github || "",
+            featured: false,
+            created: new Date().toISOString()
           };
 
           const c = sb();
           if (!c) throw new Error("Backend not ready");
 
+          // ========== FIXED INSERT (no String() on owner_id) ==========
           const { error } = await c.from("listings").insert([{
-            id, type_key: S.key, type: t.name, name: l.name, category: l.category,
-            description: l.desc, long_desc: l.longDesc, url: l.url, url2: l.url2 || null, cta,
-            owner: l.owner, owner_id: String(l.ownerId), owner_email: d.email,
-            pricing: l.pricing, price, pricing_details: l.pricingDetails || null,
-            logo_url: logoUrl, screenshots: shotUrls, video_url: video,
-            features: d.features, inputs: d.inputs,
-            version: l.version || null, release_notes: l.releaseNotes || null, github: l.github || null,
-            featured_requested: false, status: "live"
+            id,
+            type_key: S.key,
+            type: t.name,
+            name: l.name,
+            category: l.category,
+            description: l.desc,
+            long_desc: l.longDesc,
+            url: l.url,
+            url2: l.url2 || null,
+            cta,
+            owner: l.owner,
+            owner_id: l.ownerId,            // ← pure UUID (this was the bug)
+            owner_email: d.email,
+            pricing: l.pricing,
+            price,
+            pricing_details: l.pricingDetails || null,
+            logo_url: logoUrl,
+            screenshots: shotUrls,
+            video_url: video,
+            features: d.features,
+            inputs: d.inputs,
+            version: l.version || null,
+            release_notes: l.releaseNotes || null,
+            github: l.github || null,
+            featured_requested: false,
+            status: "live"
           }]);
+          // ============================================================
 
           if (error) {
             if (error.code === "23505") throw new Error("This link is already listed.");
@@ -439,6 +485,7 @@
           if (window.VH?.refreshCounts) VH.refreshCounts();
           App.toast(`Launched “${l.name}”`, "success");
           App.go("/ai/" + id);
+
         } catch (e) {
           btn.disabled = false;
           document.getElementById("prog").style.display = "none";
