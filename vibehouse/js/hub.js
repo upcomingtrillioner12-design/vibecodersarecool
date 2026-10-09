@@ -1,6 +1,6 @@
 // ============================================================
 // Vibehouse Hub – listings, ownership, stats, dashboard, follows
-// + Full product editing for owners
+// + Full product editing + clickable product icon for owners
 // ============================================================
 (function () {
   const CONTACT = "upcomingtrillioner12@gmail.com";
@@ -210,7 +210,7 @@
 
   window.VHI = { TYPES, CATS, validate, parse, normUrl, mk, merge, sb, esc };
 
-  // ---------- Product detail (CTA + full owner edit) ----------
+  // ---------- Product detail (CTA + clickable icon + full edit) ----------
   const origProduct = App.renderProduct.bind(App);
   App.renderProduct = function (el, id) {
     origProduct(el, id);
@@ -222,6 +222,87 @@
     const acts = el.querySelector(".detail-actions");
     if (!acts) return;
 
+    // Make the product logo clickable for the owner
+    const logoEl = el.querySelector(".detail-logo");
+    if (logoEl && App.isProductOwner(p)) {
+      logoEl.style.cursor = "pointer";
+      logoEl.title = "Click to change icon";
+      logoEl.style.position = "relative";
+
+      // Add subtle overlay hint
+      if (!logoEl.querySelector(".logo-edit-hint")) {
+        const hint = document.createElement("div");
+        hint.className = "logo-edit-hint";
+        hint.innerHTML = "Change";
+        hint.style.cssText = `
+          position:absolute; inset:0; background:rgba(0,0,0,.55);
+          display:none; place-items:center; font-size:12px; font-weight:600;
+          border-radius:inherit; color:#fff;`;
+        logoEl.appendChild(hint);
+        logoEl.addEventListener("mouseenter", () => hint.style.display = "grid");
+        logoEl.addEventListener("mouseleave", () => hint.style.display = "none");
+      }
+
+      // Hidden file input
+      let fileInput = document.getElementById("productLogoInput");
+      if (!fileInput) {
+        fileInput = document.createElement("input");
+        fileInput.type = "file";
+        fileInput.id = "productLogoInput";
+        fileInput.accept = "image/*";
+        fileInput.style.display = "none";
+        document.body.appendChild(fileInput);
+      }
+
+      logoEl.onclick = () => fileInput.click();
+
+      fileInput.onchange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file || !file.type.startsWith("image/")) {
+          App.toast("Please choose an image file", "error");
+          return;
+        }
+        try {
+          App.toast("Uploading icon…", "success");
+          const dataUrl = await IconEngine.fileToDataUrl(file);
+
+          // Upload to storage
+          let logoRes = null;
+          if (window.VibeBackend) {
+            logoRes = await window.VibeBackend.uploadProductLogo(p.id, dataUrl);
+          }
+
+          if (logoRes && logoRes.ok && logoRes.url) {
+            // Update database
+            const c = sb();
+            if (c) {
+              await c.from("listings").update({ logo_url: logoRes.url }).eq("id", p.id);
+            }
+            p.logoUrl = logoRes.url;
+            p._resolvedLogo = logoRes.url;
+          } else {
+            // Fallback to data URL (temporary)
+            p.logoUrl = dataUrl;
+            p._resolvedLogo = dataUrl;
+          }
+
+          // Refresh the logo in the hero
+          const newLogoHtml = App.productLogoHtml(p, "detail-logo");
+          logoEl.outerHTML = newLogoHtml;
+
+          // Re-attach click handler after replace
+          App.route(); // simplest reliable refresh
+          App.toast("Product icon updated", "success");
+        } catch (err) {
+          console.error(err);
+          App.toast("Could not update icon", "error");
+        } finally {
+          fileInput.value = "";
+        }
+      };
+    }
+
+    // CTA buttons
     acts.innerHTML = "";
     const mkBtn = (label, which, url, primary) => url
       ? `<button class="btn ${primary ? "btn-primary" : "btn-ghost"}" onclick="VH.open('${esc(id)}',${which})">${esc(label)} ↗</button>`
@@ -230,7 +311,6 @@
     let html = mkBtn(p.cta || t.cta, 1, p.url, true);
     if (p.typeKey === "mobile" && p.url2) html += mkBtn("Get on Google Play", 2, p.url2, false);
 
-    // Owner gets full Edit Product button
     if (App.isProductOwner(p)) {
       html += `<button class="btn btn-ghost" id="vhEditBtn">Edit product</button>`;
     }
@@ -376,7 +456,6 @@
 
     overlay.classList.add("open");
 
-    // Pricing toggle
     document.getElementById("epPricing").onchange = e => {
       document.getElementById("epPriceWrap").style.display =
         e.target.value === "Free" ? "none" : "block";
@@ -384,7 +463,6 @@
 
     document.getElementById("epCancel").onclick = () => App.closeModal();
 
-    // Delete
     document.getElementById("epDelete").onclick = async () => {
       if (!confirm(`Delete “${p.name}”? This cannot be undone.`)) return;
       const c = sb();
@@ -398,7 +476,6 @@
       App.go("/dashboard");
     };
 
-    // Save
     document.getElementById("editProductForm").onsubmit = async e => {
       e.preventDefault();
       const msg = document.getElementById("epMsg");
@@ -484,7 +561,6 @@
         return;
       }
 
-      // Update local object so UI updates immediately
       Object.assign(p, {
         name,
         desc,
@@ -508,7 +584,7 @@
 
       App.closeModal();
       App.toast("Product updated", "success");
-      App.route(); // refresh the page
+      App.route();
     };
   }
 
@@ -708,7 +784,6 @@
       </a>`);
   }
 
-  // Refresh counts after pull
   window.VH.refreshCounts = async function () {
     if (!App.user) return;
     App.user.tools = PRODUCTS.filter(p => App.isProductOwner(p)).length;
