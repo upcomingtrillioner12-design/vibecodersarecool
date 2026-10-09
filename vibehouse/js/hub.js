@@ -159,7 +159,9 @@
     return {
       id: l.id,
       logoColor: IconEngine.colorFrom(l.id),
-      ownerColor: IconEngine.colorFrom(l.id + "o"),
+      // FIXED: color is derived from the owner, so every product by the
+      // same owner gets the same fallback avatar color.
+      ownerColor: IconEngine.colorFrom((l.ownerId || l.id) + "o"),
       logoUrl: l.logoUrl || null,
       ownerAvatarUrl: l.ownerAvatarUrl || null,
       name: l.name,
