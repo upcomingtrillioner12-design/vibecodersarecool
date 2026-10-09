@@ -1,6 +1,6 @@
 // ============================================================
 // Vibehouse Hub – listings, ownership, stats, dashboard, follows
-// + Full product editing + clickable product icon for owners
+// + Full product editing + persistent clickable product icon
 // ============================================================
 (function () {
   const CONTACT = "upcomingtrillioner12@gmail.com";
@@ -210,7 +210,7 @@
 
   window.VHI = { TYPES, CATS, validate, parse, normUrl, mk, merge, sb, esc };
 
-  // ---------- Product detail (CTA + clickable icon + full edit) ----------
+  // ---------- Product detail (CTA + persistent icon + full edit) ----------
   const origProduct = App.renderProduct.bind(App);
   App.renderProduct = function (el, id) {
     origProduct(el, id);
@@ -222,77 +222,114 @@
     const acts = el.querySelector(".detail-actions");
     if (!acts) return;
 
-    // Make the product logo clickable for the owner
+    // ========== CLICKABLE PRODUCT ICON (OWNER ONLY) ==========
     const logoEl = el.querySelector(".detail-logo");
     if (logoEl && App.isProductOwner(p)) {
       logoEl.style.cursor = "pointer";
       logoEl.title = "Click to change icon";
       logoEl.style.position = "relative";
 
-      // Add subtle overlay hint
+      // Hover hint
       if (!logoEl.querySelector(".logo-edit-hint")) {
         const hint = document.createElement("div");
         hint.className = "logo-edit-hint";
-        hint.innerHTML = "Change";
+        hint.textContent = "Change";
         hint.style.cssText = `
           position:absolute; inset:0; background:rgba(0,0,0,.55);
           display:none; place-items:center; font-size:12px; font-weight:600;
-          border-radius:inherit; color:#fff;`;
+          border-radius:inherit; color:#fff; z-index:2;`;
         logoEl.appendChild(hint);
         logoEl.addEventListener("mouseenter", () => hint.style.display = "grid");
         logoEl.addEventListener("mouseleave", () => hint.style.display = "none");
       }
 
-      // Hidden file input
+      // Single hidden file input
       let fileInput = document.getElementById("productLogoInput");
       if (!fileInput) {
         fileInput = document.createElement("input");
         fileInput.type = "file";
         fileInput.id = "productLogoInput";
-        fileInput.accept = "image/*";
+        fileInput.accept = "image/png,image/jpeg,image/webp,image/gif";
         fileInput.style.display = "none";
         document.body.appendChild(fileInput);
       }
 
-      logoEl.onclick = () => fileInput.click();
+      logoEl.onclick = (e) => {
+        e.stopPropagation();
+        fileInput.click();
+      };
 
       fileInput.onchange = async (e) => {
         const file = e.target.files?.[0];
-        if (!file || !file.type.startsWith("image/")) {
+        if (!file) return;
+
+        if (!file.type.startsWith("image/")) {
           App.toast("Please choose an image file", "error");
+          fileInput.value = "";
           return;
         }
+
         try {
           App.toast("Uploading icon…", "success");
-          const dataUrl = await IconEngine.fileToDataUrl(file);
 
-          // Upload to storage
-          let logoRes = null;
-          if (window.VibeBackend) {
-            logoRes = await window.VibeBackend.uploadProductLogo(p.id, dataUrl);
-          }
+          // Compress
+          const dataUrl = await IconEngine.fileToDataUrl(file, 400);
 
-          if (logoRes && logoRes.ok && logoRes.url) {
-            // Update database
-            const c = sb();
-            if (c) {
-              await c.from("listings").update({ logo_url: logoRes.url }).eq("id", p.id);
+          // 1. Upload to Storage
+          let publicUrl = null;
+
+          if (window.VibeBackend && VibeBackend.isReady()) {
+            const uploadRes = await VibeBackend.uploadProductLogo(p.id, dataUrl);
+
+            if (uploadRes && uploadRes.ok && uploadRes.url) {
+              publicUrl = uploadRes.url;
+            } else {
+              // Fallback to generic media upload
+              const blob = await (await fetch(dataUrl)).blob();
+              const mediaRes = await VibeBackend.uploadMedia(
+                new File([blob], `${p.id}-logo.jpg`, { type: "image/jpeg" }),
+                App.user.id
+              );
+              if (mediaRes && mediaRes.ok && mediaRes.url) {
+                publicUrl = mediaRes.url;
+              }
             }
-            p.logoUrl = logoRes.url;
-            p._resolvedLogo = logoRes.url;
-          } else {
-            // Fallback to data URL (temporary)
-            p.logoUrl = dataUrl;
-            p._resolvedLogo = dataUrl;
           }
 
-          // Refresh the logo in the hero
-          const newLogoHtml = App.productLogoHtml(p, "detail-logo");
-          logoEl.outerHTML = newLogoHtml;
+          if (!publicUrl) {
+            App.toast("Upload failed. Please try again.", "error");
+            fileInput.value = "";
+            return;
+          }
 
-          // Re-attach click handler after replace
-          App.route(); // simplest reliable refresh
+          // 2. Save permanent URL into listings table
+          const client = sb();
+          if (!client) {
+            App.toast("Backend not ready", "error");
+            fileInput.value = "";
+            return;
+          }
+
+          const { error } = await client
+            .from("listings")
+            .update({ logo_url: publicUrl })
+            .eq("id", p.id);
+
+          if (error) {
+            console.error("Logo DB update failed:", error);
+            App.toast("Could not save icon: " + error.message, "error");
+            fileInput.value = "";
+            return;
+          }
+
+          // 3. Update local object
+          p.logoUrl = publicUrl;
+          p._resolvedLogo = publicUrl;
+
+          // 4. Refresh so everything stays in sync
           App.toast("Product icon updated", "success");
+          App.route();
+
         } catch (err) {
           console.error(err);
           App.toast("Could not update icon", "error");
@@ -302,7 +339,7 @@
       };
     }
 
-    // CTA buttons
+    // ========== CTA BUTTONS ==========
     acts.innerHTML = "";
     const mkBtn = (label, which, url, primary) => url
       ? `<button class="btn ${primary ? "btn-primary" : "btn-ghost"}" onclick="VH.open('${esc(id)}',${which})">${esc(label)} ↗</button>`
