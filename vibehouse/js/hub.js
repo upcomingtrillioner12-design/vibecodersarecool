@@ -1,6 +1,7 @@
 // ============================================================
 // Vibehouse Hub – listings, ownership, stats, dashboard, follows
 // + Full product editing + persistent clickable product icon
+// + Prominent views / opens stats on every tool (cards + detail)
 // ============================================================
 (function () {
   const CONTACT = "upcomingtrillioner12@gmail.com";
@@ -55,8 +56,15 @@
     track(id, field) {
       const s = this.stats[id] = this.get(id);
       s[field]++;
+      this.paintStats(id);
       const c = sb();
       if (c) c.rpc("track_event", { p_id: id, p_kind: field }).then(() => {}, () => {});
+    },
+    // Live-update every counter on screen for this product
+    paintStats(id) {
+      const s = this.get(id);
+      document.querySelectorAll(`[data-vh-views="${CSS.escape(String(id))}"]`).forEach(el => { el.textContent = num(s.views); });
+      document.querySelectorAll(`[data-vh-opens="${CSS.escape(String(id))}"]`).forEach(el => { el.textContent = num(s.clicks); });
     },
     view(id) {
       if (this.seen.has(id)) return;
@@ -102,7 +110,9 @@
           PRODUCTS.push(p);
         });
 
-        const sig = JSON.stringify([rows.length, Object.keys(prof).length]);
+        // include stats in the signature so cards re-render when counts change
+        const statSig = Object.values(this.stats).reduce((a, x) => a + x.views + x.clicks, 0);
+        const sig = JSON.stringify([rows.length, Object.keys(prof).length, statSig]);
         const changed = sig !== this.sig;
         this.sig = sig;
         return changed;
@@ -159,7 +169,7 @@
     return {
       id: l.id,
       logoColor: IconEngine.colorFrom(l.id),
-      // FIXED: color is derived from the owner, so every product by the
+      // color is derived from the owner, so every product by the
       // same owner gets the same fallback avatar color.
       ownerColor: IconEngine.colorFrom((l.ownerId || l.id) + "o"),
       logoUrl: l.logoUrl || null,
@@ -211,6 +221,57 @@
   }
 
   window.VHI = { TYPES, CATS, validate, parse, normUrl, mk, merge, sb, esc };
+
+  // ============================================================
+  // STATS UI (cards + detail)
+  // ============================================================
+  const EYE = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>`;
+  const OPEN = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>`;
+
+  // Compact stats row used on every product card / list row
+  function cardStatsHtml(id) {
+    const s = VH.get(id);
+    const sid = esc(id);
+    return `<div class="vh-stats" style="display:flex;gap:14px;align-items:center;margin-top:8px;font-size:13px;font-weight:700;color:var(--text)">
+      <span title="Views" style="display:inline-flex;align-items:center;gap:5px;color:var(--accent)">${EYE}<span data-vh-views="${sid}">${num(s.views)}</span> <span style="font-weight:500;color:var(--text-muted)">views</span></span>
+      <span title="People who opened this tool" style="display:inline-flex;align-items:center;gap:5px;color:var(--accent)">${OPEN}<span data-vh-opens="${sid}">${num(s.clicks)}</span> <span style="font-weight:500;color:var(--text-muted)">opens</span></span>
+    </div>`;
+  }
+
+  // Large stat boxes used on the product detail page
+  function detailStatsHtml(id) {
+    const s = VH.get(id);
+    const sid = esc(id);
+    const box = (icon, attr, value, label) => `
+      <div style="flex:1;min-width:140px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:14px 18px">
+        <div style="display:flex;align-items:center;gap:6px;color:var(--accent);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">${icon}${label}</div>
+        <div style="font-size:30px;font-weight:800;line-height:1.2;margin-top:4px" ${attr}="${sid}">${value}</div>
+      </div>`;
+    return `<div class="vh-stat-boxes" style="display:flex;gap:12px;flex-wrap:wrap;margin:16px 0">
+      ${box(EYE, "data-vh-views", num(s.views), "Views")}
+      ${box(OPEN, "data-vh-opens", num(s.clicks), "Opens / users")}
+    </div>`;
+  }
+
+  // Inject stats into every card/row rendered by App.renderProductCards
+  // (works with the uniform rows from vh-list.js without editing it)
+  const origCards = App.renderProductCards.bind(App);
+  App.renderProductCards = function (container, list) {
+    const out = origCards(container, list);
+    try {
+      if (container) {
+        container.querySelectorAll('[data-go^="/ai/"], [data-go^="/product/"]').forEach(card => {
+          if (card.querySelector(".vh-stats")) return;
+          const raw = card.getAttribute("data-go").replace(/^\/(ai|product)\//, "");
+          let id = raw;
+          try { id = decodeURIComponent(raw); } catch (e) {}
+          const holder = card.querySelector(".product-meta, .product-info, .row-info") || card;
+          holder.insertAdjacentHTML("beforeend", cardStatsHtml(id));
+        });
+      }
+    } catch (e) { console.warn("[Vibehouse] stats inject", e); }
+    return out;
+  };
 
   // ---------- Product detail (CTA + persistent icon + full edit) ----------
   const origProduct = App.renderProduct.bind(App);
@@ -361,7 +422,8 @@
       : "Opens in a new tab";
 
     acts.insertAdjacentHTML("afterend",
-      `<p class="vh-note vh-line">${esc(t.name)} · ${esc(note)} · <b>${num(s.views)}</b> views · <b>${num(s.clicks)}</b> opens</p>
+      `${detailStatsHtml(id)}
+       <p class="vh-note vh-line">${esc(t.name)} · ${esc(note)}</p>
        <div id="vhEdit"></div>`
     );
 
